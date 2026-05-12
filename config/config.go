@@ -14,6 +14,7 @@ type Config struct {
 	GatewayAddr   string
 	AdminAddr     string
 	GatewayRegion string
+	AdminBasePath string
 }
 
 func Load() (*Config, error) {
@@ -23,6 +24,7 @@ func Load() (*Config, error) {
 		GatewayAddr:   env("GATEWAY_ADDR", ":8080"),
 		AdminAddr:     env("ADMIN_ADDR", ":9001"),
 		GatewayRegion: env("GATEWAY_REGION", "us-east-1"),
+		AdminBasePath: env("ADMIN_BASE_PATH", "/admin"),
 	}
 
 	var missing []string

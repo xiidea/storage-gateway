@@ -2,6 +2,7 @@ package admin
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -20,37 +21,53 @@ type Handler struct {
 }
 
 // New wires all admin routes and returns the ready Handler.
+//
 // adminToken is the bearer token required on every request.
-func New(mgr registry.Manager, cryptoKey []byte, pool *backend.Pool, adminToken string) *Handler {
+// basePath is an optional URL prefix for all routes (e.g. "/api"). Leave empty
+// for no prefix. The /healthz endpoint is mounted separately by main and is
+// never affected by this prefix.
+func New(mgr registry.Manager, cryptoKey []byte, pool *backend.Pool, adminToken, basePath string) *Handler {
 	h := &Handler{mgr: mgr, cryptoKey: cryptoKey, pool: pool}
+
+	// Normalise: ensure leading slash, no trailing slash.
+	if basePath != "" && !strings.HasPrefix(basePath, "/") {
+		basePath = "/" + basePath
+	}
+	basePath = strings.TrimRight(basePath, "/")
 
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
 	r.Use(chimw.Logger)
 	r.Use(chimw.Recoverer)
-	r.Use(bearerAuth(adminToken))
 
-	r.Route("/tenants", func(r chi.Router) {
-		r.Post("/", h.createTenant)
-		r.Get("/{tenantID}", h.getTenant)
+	// All tenant routes are grouped under the (optional) base path and protected
+	// by the admin bearer token.
+	r.Group(func(r chi.Router) {
+		r.Use(bearerAuth(adminToken))
 
-		r.Route("/{tenantID}/keys", func(r chi.Router) {
-			r.Post("/", h.createAccessKey)
-			r.Get("/", h.listAccessKeys)
-			r.Delete("/{keyID}", h.revokeAccessKey)
-		})
+		r.Route(basePath+"/tenants", func(r chi.Router) {
+			r.Get("/", h.listTenants)
+			r.Post("/", h.createTenant)
+			r.Get("/{tenantID}", h.getTenant)
 
-		r.Route("/{tenantID}/stores", func(r chi.Router) {
-			r.Post("/", h.createStore)
-			r.Get("/", h.listStores)
-			r.Get("/{storeID}", h.getStore)
-			r.Put("/{storeID}/backend", h.updateStoreBackend)
-			r.Delete("/{storeID}", h.deleteStore)
+			r.Route("/{tenantID}/keys", func(r chi.Router) {
+				r.Post("/", h.createAccessKey)
+				r.Get("/", h.listAccessKeys)
+				r.Delete("/{keyID}", h.revokeAccessKey)
+			})
 
-			r.Route("/{storeID}/buckets", func(r chi.Router) {
-				r.Post("/", h.createBucketMapping)
-				r.Get("/", h.listBucketMappings)
-				r.Delete("/{mappingID}", h.deleteBucketMapping)
+			r.Route("/{tenantID}/stores", func(r chi.Router) {
+				r.Post("/", h.createStore)
+				r.Get("/", h.listStores)
+				r.Get("/{storeID}", h.getStore)
+				r.Put("/{storeID}/backend", h.updateStoreBackend)
+				r.Delete("/{storeID}", h.deleteStore)
+
+				r.Route("/{storeID}/buckets", func(r chi.Router) {
+					r.Post("/", h.createBucketMapping)
+					r.Get("/", h.listBucketMappings)
+					r.Delete("/{mappingID}", h.deleteBucketMapping)
+				})
 			})
 		})
 	})

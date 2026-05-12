@@ -5,6 +5,21 @@ import (
 	"net/http"
 )
 
+// GET /tenants
+func (h *Handler) listTenants(w http.ResponseWriter, r *http.Request) {
+	tenants, err := h.mgr.ListTenants(r.Context())
+	if err != nil {
+		handleErr(w, err)
+		return
+	}
+
+	dtos := make([]tenantDTO, len(tenants))
+	for i := range tenants {
+		dtos[i] = toTenantDTO(&tenants[i])
+	}
+	writeJSON(w, http.StatusOK, dtos)
+}
+
 // POST /tenants
 func (h *Handler) createTenant(w http.ResponseWriter, r *http.Request) {
 	var req struct {

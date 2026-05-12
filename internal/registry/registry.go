@@ -31,6 +31,7 @@ type Manager interface {
 	// Tenants
 	CreateTenant(ctx context.Context, name string) (*Tenant, error)
 	GetTenant(ctx context.Context, id uuid.UUID) (*Tenant, error)
+	ListTenants(ctx context.Context) ([]Tenant, error)
 
 	// Access keys
 	CreateAccessKey(ctx context.Context, tenantID uuid.UUID, accessKey string, secretKeyEnc []byte) (*AccessKeyRow, error)

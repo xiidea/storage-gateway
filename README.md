@@ -91,6 +91,7 @@ All configuration is via environment variables.
 | `ADMIN_ADDR` | | `:9001` | Listen address for the Admin API |
 | `GATEWAY_REGION` | | `us-east-1` | AWS region consumers must configure in their SDK |
 | `CACHE_TTL` | | `5m` | How long registry entries are cached in Redis |
+| `ADMIN_BASE_PATH` | | _(none)_ | Optional URL prefix for all Admin API routes (e.g. `/api`). `GET /healthz` is always at the root regardless of this setting. |
 
 ---
 
@@ -99,7 +100,38 @@ All configuration is via environment variables.
 All requests require `Authorization: Bearer <ADMIN_TOKEN>`.  
 All request and response bodies are JSON.
 
+### Health check
+
+Available on **both** the admin port and the gateway port — no authentication required.
+
+```
+GET /healthz
+```
+
+```json
+// 200 OK — all checks pass
+{ "status": "ok", "checks": { "database": {"status": "ok"}, "redis": {"status": "ok"} } }
+
+// 503 Service Unavailable — one or more checks fail
+{ "status": "degraded", "checks": { "database": {"status": "ok"}, "redis": {"status": "error", "error": "..."} } }
+```
+
+---
+
 ### Tenants
+
+#### List all tenants
+
+```
+GET /tenants
+```
+
+```json
+// 200 OK
+[
+  { "id": "...", "name": "acme", "created_at": "..." }
+]
+```
 
 #### Create a tenant
 

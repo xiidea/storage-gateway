@@ -14,6 +14,7 @@ import (
 
 	"storage-gateway/config"
 	"storage-gateway/internal/api/admin"
+	"storage-gateway/internal/api/health"
 	apigw "storage-gateway/internal/api/s3"
 	"storage-gateway/internal/auth"
 	"storage-gateway/internal/backend"
@@ -79,21 +80,30 @@ func main() {
 		os.Exit(1)
 	}
 
+	// --- Health handler (shared by both servers, no auth) ---
+	healthHandler := health.New(pool, rdb)
+
 	// --- Admin server ---
-	adminHandler := admin.New(mgr, cryptoKey, backendPool, adminToken)
+	// /healthz is mounted outside bearerAuth so probes can reach it freely.
+	adminMux := http.NewServeMux()
+	adminMux.Handle("/healthz", healthHandler)
+	adminMux.Handle("/", admin.New(mgr, cryptoKey, backendPool, adminToken, cfg.AdminBasePath))
 	adminSrv := &http.Server{
 		Addr:         cfg.AdminAddr,
-		Handler:      adminHandler,
+		Handler:      adminMux,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
 	// --- S3 gateway server ---
-	s3Handler := apigw.New(mgr, cryptoKey, backendPool, cfg.GatewayRegion)
+	// /healthz also lives here so k8s readiness probes on the data-plane port work.
+	gatewayMux := http.NewServeMux()
+	gatewayMux.Handle("/healthz", healthHandler)
+	gatewayMux.Handle("/", apigw.New(mgr, cryptoKey, backendPool, cfg.GatewayRegion))
 	gatewaySrv := &http.Server{
 		Addr:         cfg.GatewayAddr,
-		Handler:      s3Handler,
+		Handler:      gatewayMux,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 0, // disabled: streaming downloads have no fixed deadline
 		IdleTimeout:  60 * time.Second,

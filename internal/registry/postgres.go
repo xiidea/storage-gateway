@@ -97,6 +97,26 @@ func (m *pgManager) CreateTenant(ctx context.Context, name string) (*Tenant, err
 	return t, nil
 }
 
+func (m *pgManager) ListTenants(ctx context.Context) ([]Tenant, error) {
+	const q = `SELECT id, name, created_at FROM tenants ORDER BY name`
+
+	rows, err := m.pool.Query(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("list tenants: %w", err)
+	}
+	defer rows.Close()
+
+	var tenants []Tenant
+	for rows.Next() {
+		var t Tenant
+		if err := rows.Scan(&t.ID, &t.Name, &t.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan tenant: %w", err)
+		}
+		tenants = append(tenants, t)
+	}
+	return tenants, rows.Err()
+}
+
 func (m *pgManager) GetTenant(ctx context.Context, id uuid.UUID) (*Tenant, error) {
 	const q = `SELECT id, name, created_at FROM tenants WHERE id = $1`
 

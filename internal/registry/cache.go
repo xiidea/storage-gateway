@@ -164,6 +164,10 @@ func (c *cachedRegistry) GetTenant(ctx context.Context, id uuid.UUID) (*Tenant, 
 	return c.inner.GetTenant(ctx, id)
 }
 
+func (c *cachedRegistry) ListTenants(ctx context.Context) ([]Tenant, error) {
+	return c.inner.ListTenants(ctx)
+}
+
 func (c *cachedRegistry) CreateAccessKey(ctx context.Context, tenantID uuid.UUID, accessKey string, secretKeyEnc []byte) (*AccessKeyRow, error) {
 	return c.inner.CreateAccessKey(ctx, tenantID, accessKey, secretKeyEnc)
 }
