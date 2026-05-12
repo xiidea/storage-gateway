@@ -1,5 +1,7 @@
 # ---------- build stage ----------
-FROM golang:1.26-alpine AS builder
+# Pin the builder to the host platform so Go cross-compiles natively instead of
+# running under QEMU emulation, which OOMs or times out on arm64 in CI.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
@@ -9,7 +11,10 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build \
+# TARGETOS/TARGETARCH are injected by buildx for the target platform.
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
       -ldflags="-s -w" \
       -trimpath \
       -o /gateway \
