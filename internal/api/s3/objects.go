@@ -58,6 +58,7 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer out.Body.Close()
 
+	setCORSHeaders(w, r, rb.AllowedOrigins)
 	w.Header().Set("Accept-Ranges", "bytes")
 	if out.ETag != "" {
 		w.Header().Set("ETag", `"`+out.ETag+`"`)
@@ -127,6 +128,7 @@ func (h *Handler) headObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	setCORSHeaders(w, r, rb.AllowedOrigins)
 	w.Header().Set("Accept-Ranges", "bytes")
 	if out.ETag != "" {
 		w.Header().Set("ETag", `"`+out.ETag+`"`)

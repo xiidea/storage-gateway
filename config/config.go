@@ -3,18 +3,20 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
 type Config struct {
-	DatabaseURL   string
-	RedisURL      string
-	CacheTTL      time.Duration
-	MasterKey     string
-	GatewayAddr   string
-	AdminAddr     string
-	GatewayRegion string
-	AdminBasePath string
+	DatabaseURL        string
+	RedisURL           string
+	CacheTTL           time.Duration
+	MasterKey          string
+	GatewayAddr        string
+	AdminAddr          string
+	GatewayRegion      string
+	AdminBasePath      string
+	AdminAllowedOrigins []string
 }
 
 func Load() (*Config, error) {
@@ -38,6 +40,14 @@ func Load() (*Config, error) {
 		var err error
 		if cfg.CacheTTL, err = time.ParseDuration(d); err != nil {
 			return nil, fmt.Errorf("invalid CACHE_TTL %q: %w", d, err)
+		}
+	}
+
+	if v := os.Getenv("ADMIN_ALLOWED_ORIGINS"); v != "" {
+		for _, o := range strings.Split(v, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				cfg.AdminAllowedOrigins = append(cfg.AdminAllowedOrigins, o)
+			}
 		}
 	}
 

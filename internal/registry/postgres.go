@@ -53,7 +53,8 @@ func (m *pgManager) ResolveBucket(ctx context.Context, tenantID uuid.UUID, gatew
 			s.backend_type,
 			s.backend_config_enc,
 			bm.backend_bucket,
-			s.presigned_mode
+			s.presigned_mode,
+			s.allowed_origins
 		FROM  bucket_mappings bm
 		JOIN  stores s ON s.id = bm.store_id
 		WHERE bm.gateway_bucket = $1`
@@ -62,7 +63,7 @@ func (m *pgManager) ResolveBucket(ctx context.Context, tenantID uuid.UUID, gatew
 	rb.GatewayBucket = gatewayBucket
 	err := m.pool.QueryRow(ctx, q, gatewayBucket).Scan(
 		&rb.StoreID, &rb.TenantID, &rb.BackendType, &rb.BackendConfigEnc,
-		&rb.BackendBucket, &rb.PresignedMode,
+		&rb.BackendBucket, &rb.PresignedMode, &rb.AllowedOrigins,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrBucketNotFound
@@ -74,6 +75,24 @@ func (m *pgManager) ResolveBucket(ctx context.Context, tenantID uuid.UUID, gatew
 		return nil, ErrUnauthorized
 	}
 	return &rb, nil
+}
+
+func (m *pgManager) GetBucketAllowedOrigins(ctx context.Context, gatewayBucket string) ([]string, error) {
+	const q = `
+		SELECT s.allowed_origins
+		FROM   bucket_mappings bm
+		JOIN   stores s ON s.id = bm.store_id
+		WHERE  bm.gateway_bucket = $1`
+
+	var origins []string
+	err := m.pool.QueryRow(ctx, q, gatewayBucket).Scan(&origins)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get bucket allowed origins: %w", err)
+	}
+	return origins, nil
 }
 
 // No-ops: pgManager has no cache to invalidate.
@@ -200,10 +219,13 @@ func (m *pgManager) RevokeAccessKey(ctx context.Context, id, tenantID uuid.UUID)
 
 func (m *pgManager) CreateStore(ctx context.Context, p CreateStoreParams) (*Store, error) {
 	const q = `
-		INSERT INTO stores (id, tenant_id, name, backend_type, backend_config_enc, presigned_mode)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO stores (id, tenant_id, name, backend_type, backend_config_enc, presigned_mode, allowed_origins)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, created_at, updated_at`
 
+	if p.AllowedOrigins == nil {
+		p.AllowedOrigins = []string{}
+	}
 	s := &Store{
 		ID:               uuid.New(),
 		TenantID:         p.TenantID,
@@ -211,9 +233,10 @@ func (m *pgManager) CreateStore(ctx context.Context, p CreateStoreParams) (*Stor
 		BackendType:      p.BackendType,
 		BackendConfigEnc: p.BackendConfigEnc,
 		PresignedMode:    p.PresignedMode,
+		AllowedOrigins:   p.AllowedOrigins,
 	}
 	err := m.pool.QueryRow(ctx, q,
-		s.ID, p.TenantID, p.Name, p.BackendType, p.BackendConfigEnc, p.PresignedMode,
+		s.ID, p.TenantID, p.Name, p.BackendType, p.BackendConfigEnc, p.PresignedMode, p.AllowedOrigins,
 	).Scan(&s.ID, &s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create store: %w", err)
@@ -223,14 +246,14 @@ func (m *pgManager) CreateStore(ctx context.Context, p CreateStoreParams) (*Stor
 
 func (m *pgManager) GetStore(ctx context.Context, id uuid.UUID) (*Store, error) {
 	const q = `
-		SELECT id, tenant_id, name, backend_type, backend_config_enc, presigned_mode, created_at, updated_at
+		SELECT id, tenant_id, name, backend_type, backend_config_enc, presigned_mode, allowed_origins, created_at, updated_at
 		FROM   stores
 		WHERE  id = $1`
 
 	var s Store
 	err := m.pool.QueryRow(ctx, q, id).Scan(
 		&s.ID, &s.TenantID, &s.Name, &s.BackendType, &s.BackendConfigEnc,
-		&s.PresignedMode, &s.CreatedAt, &s.UpdatedAt,
+		&s.PresignedMode, &s.AllowedOrigins, &s.CreatedAt, &s.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrStoreNotFound
@@ -243,7 +266,7 @@ func (m *pgManager) GetStore(ctx context.Context, id uuid.UUID) (*Store, error) 
 
 func (m *pgManager) ListStores(ctx context.Context, tenantID uuid.UUID) ([]Store, error) {
 	const q = `
-		SELECT id, tenant_id, name, backend_type, backend_config_enc, presigned_mode, created_at, updated_at
+		SELECT id, tenant_id, name, backend_type, backend_config_enc, presigned_mode, allowed_origins, created_at, updated_at
 		FROM   stores
 		WHERE  tenant_id = $1
 		ORDER  BY name`
@@ -259,7 +282,7 @@ func (m *pgManager) ListStores(ctx context.Context, tenantID uuid.UUID) ([]Store
 		var s Store
 		if err := rows.Scan(
 			&s.ID, &s.TenantID, &s.Name, &s.BackendType, &s.BackendConfigEnc,
-			&s.PresignedMode, &s.CreatedAt, &s.UpdatedAt,
+			&s.PresignedMode, &s.AllowedOrigins, &s.CreatedAt, &s.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan store: %w", err)
 		}
@@ -277,6 +300,24 @@ func (m *pgManager) UpdateStoreBackend(ctx context.Context, id, tenantID uuid.UU
 	tag, err := m.pool.Exec(ctx, q, backendConfigEnc, presignedMode, id, tenantID)
 	if err != nil {
 		return fmt.Errorf("update store: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrStoreNotFound
+	}
+	return nil
+}
+
+func (m *pgManager) UpdateStoreAllowedOrigins(ctx context.Context, id, tenantID uuid.UUID, origins []string) error {
+	if origins == nil {
+		origins = []string{}
+	}
+	const q = `
+		UPDATE stores SET allowed_origins = $1, updated_at = NOW()
+		WHERE  id = $2 AND tenant_id = $3`
+
+	tag, err := m.pool.Exec(ctx, q, origins, id, tenantID)
+	if err != nil {
+		return fmt.Errorf("update store allowed origins: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrStoreNotFound

@@ -18,6 +18,11 @@ type Registry interface {
 	// Returns ErrUnauthorized if the resolved store belongs to a different tenant.
 	ResolveBucket(ctx context.Context, tenantID uuid.UUID, gatewayBucket string) (*ResolvedBucket, error)
 
+	// GetBucketAllowedOrigins returns the CORS allowed origins for a gateway bucket.
+	// No tenant authentication required — used for OPTIONS preflight responses.
+	// Returns an empty slice (no error) if the bucket does not exist.
+	GetBucketAllowedOrigins(ctx context.Context, gatewayBucket string) ([]string, error)
+
 	// Invalidate* are called by the admin API after mutations so cached entries
 	// are not served stale. Implementations that do not cache are no-ops.
 	InvalidateAccessKey(ctx context.Context, accessKey string) error
@@ -43,6 +48,7 @@ type Manager interface {
 	GetStore(ctx context.Context, id uuid.UUID) (*Store, error)
 	ListStores(ctx context.Context, tenantID uuid.UUID) ([]Store, error)
 	UpdateStoreBackend(ctx context.Context, id, tenantID uuid.UUID, backendConfigEnc []byte, presignedMode PresignedMode) error
+	UpdateStoreAllowedOrigins(ctx context.Context, id, tenantID uuid.UUID, origins []string) error
 	DeleteStore(ctx context.Context, id, tenantID uuid.UUID) error
 
 	// Bucket mappings

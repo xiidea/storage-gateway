@@ -44,12 +44,13 @@ type cachedAccessKey struct {
 }
 
 type cachedBucket struct {
-	StoreID          string `json:"sid"`
-	TenantID         string `json:"tid"`
-	BackendType      string `json:"bt"`
-	BackendConfigEnc []byte `json:"bc"`
-	BackendBucket    string `json:"bb"`
-	PresignedMode    string `json:"pm"`
+	StoreID          string   `json:"sid"`
+	TenantID         string   `json:"tid"`
+	BackendType      string   `json:"bt"`
+	BackendConfigEnc []byte   `json:"bc"`
+	BackendBucket    string   `json:"bb"`
+	PresignedMode    string   `json:"pm"`
+	AllowedOrigins   []string `json:"ao"`
 }
 
 func (c *cachedRegistry) LookupAccessKey(ctx context.Context, accessKey string) (*AccessKeyRow, error) {
@@ -117,6 +118,7 @@ func (c *cachedRegistry) ResolveBucket(ctx context.Context, tenantID uuid.UUID, 
 					GatewayBucket:    gatewayBucket,
 					BackendBucket:    cached.BackendBucket,
 					PresignedMode:    PresignedMode(cached.PresignedMode),
+					AllowedOrigins:   cached.AllowedOrigins,
 				}, nil
 			}
 		}
@@ -138,6 +140,7 @@ func (c *cachedRegistry) ResolveBucket(ctx context.Context, tenantID uuid.UUID, 
 		BackendConfigEnc: rb.BackendConfigEnc,
 		BackendBucket:    rb.BackendBucket,
 		PresignedMode:    string(rb.PresignedMode),
+		AllowedOrigins:   rb.AllowedOrigins,
 	}); jerr == nil {
 		_ = c.rdb.Set(ctx, key, b, c.ttl).Err()
 	}
@@ -206,8 +209,27 @@ func (c *cachedRegistry) ListStores(ctx context.Context, tenantID uuid.UUID) ([]
 	return c.inner.ListStores(ctx, tenantID)
 }
 
+func (c *cachedRegistry) GetBucketAllowedOrigins(ctx context.Context, gatewayBucket string) ([]string, error) {
+	key := prefixBucket + gatewayBucket
+	raw, err := c.rdb.Get(ctx, key).Bytes()
+	if err == nil && string(raw) != negativeSentinel {
+		var cached cachedBucket
+		if json.Unmarshal(raw, &cached) == nil {
+			return cached.AllowedOrigins, nil
+		}
+	}
+	return c.inner.GetBucketAllowedOrigins(ctx, gatewayBucket)
+}
+
 func (c *cachedRegistry) UpdateStoreBackend(ctx context.Context, id, tenantID uuid.UUID, backendConfigEnc []byte, presignedMode PresignedMode) error {
 	if err := c.inner.UpdateStoreBackend(ctx, id, tenantID, backendConfigEnc, presignedMode); err != nil {
+		return err
+	}
+	return c.invalidateBucketsForStore(ctx, id)
+}
+
+func (c *cachedRegistry) UpdateStoreAllowedOrigins(ctx context.Context, id, tenantID uuid.UUID, origins []string) error {
+	if err := c.inner.UpdateStoreAllowedOrigins(ctx, id, tenantID, origins); err != nil {
 		return err
 	}
 	return c.invalidateBucketsForStore(ctx, id)

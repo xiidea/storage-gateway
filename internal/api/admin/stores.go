@@ -145,6 +145,41 @@ func (h *Handler) updateStoreBackend(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// GET /tenants/{tenantID}/stores/{storeID}/cors
+func (h *Handler) getStoreCORS(w http.ResponseWriter, r *http.Request) {
+	store, ok := h.verifyStoreOwnership(w, r)
+	if !ok {
+		return
+	}
+	origins := store.AllowedOrigins
+	if origins == nil {
+		origins = []string{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"allowed_origins": origins})
+}
+
+// PUT /tenants/{tenantID}/stores/{storeID}/cors
+func (h *Handler) updateStoreCORS(w http.ResponseWriter, r *http.Request) {
+	store, ok := h.verifyStoreOwnership(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		AllowedOrigins []string `json:"allowed_origins"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := h.mgr.UpdateStoreAllowedOrigins(r.Context(), store.ID, store.TenantID, req.AllowedOrigins); err != nil {
+		handleErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // DELETE /tenants/{tenantID}/stores/{storeID}
 func (h *Handler) deleteStore(w http.ResponseWriter, r *http.Request) {
 	store, ok := h.verifyStoreOwnership(w, r)

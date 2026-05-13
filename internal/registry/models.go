@@ -45,6 +45,7 @@ type Store struct {
 	BackendType      BackendType   `json:"backend_type"`
 	BackendConfigEnc []byte        `json:"-"`
 	PresignedMode    PresignedMode `json:"presigned_mode"`
+	AllowedOrigins   []string      `json:"allowed_origins"`
 	CreatedAt        time.Time     `json:"created_at"`
 	UpdatedAt        time.Time     `json:"updated_at"`
 }
@@ -55,6 +56,7 @@ type CreateStoreParams struct {
 	BackendType      BackendType
 	BackendConfigEnc []byte
 	PresignedMode    PresignedMode
+	AllowedOrigins   []string
 }
 
 type BucketMapping struct {
@@ -74,6 +76,7 @@ type ResolvedBucket struct {
 	GatewayBucket    string
 	BackendBucket    string
 	PresignedMode    PresignedMode
+	AllowedOrigins   []string
 }
 
 // GatewayBucket is a lightweight view used by the S3 ListBuckets response.

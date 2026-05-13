@@ -95,24 +95,30 @@ type createKeyResponse struct {
 
 // storeDTO omits the encrypted backend config.
 type storeDTO struct {
-	ID            uuid.UUID              `json:"id"`
-	TenantID      uuid.UUID              `json:"tenant_id"`
-	Name          string                 `json:"name"`
-	BackendType   registry.BackendType   `json:"backend_type"`
-	PresignedMode registry.PresignedMode `json:"presigned_mode"`
-	CreatedAt     time.Time              `json:"created_at"`
-	UpdatedAt     time.Time              `json:"updated_at"`
+	ID             uuid.UUID              `json:"id"`
+	TenantID       uuid.UUID              `json:"tenant_id"`
+	Name           string                 `json:"name"`
+	BackendType    registry.BackendType   `json:"backend_type"`
+	PresignedMode  registry.PresignedMode `json:"presigned_mode"`
+	AllowedOrigins []string               `json:"allowed_origins"`
+	CreatedAt      time.Time              `json:"created_at"`
+	UpdatedAt      time.Time              `json:"updated_at"`
 }
 
 func toStoreDTO(s *registry.Store) storeDTO {
+	origins := s.AllowedOrigins
+	if origins == nil {
+		origins = []string{}
+	}
 	return storeDTO{
-		ID:            s.ID,
-		TenantID:      s.TenantID,
-		Name:          s.Name,
-		BackendType:   s.BackendType,
-		PresignedMode: s.PresignedMode,
-		CreatedAt:     s.CreatedAt,
-		UpdatedAt:     s.UpdatedAt,
+		ID:             s.ID,
+		TenantID:       s.TenantID,
+		Name:           s.Name,
+		BackendType:    s.BackendType,
+		PresignedMode:  s.PresignedMode,
+		AllowedOrigins: origins,
+		CreatedAt:      s.CreatedAt,
+		UpdatedAt:      s.UpdatedAt,
 	}
 }
 

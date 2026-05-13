@@ -36,22 +36,30 @@ func New(mgr registry.Manager, cryptoKey []byte, pool *backend.Pool, region stri
 	}
 
 	r := chi.NewRouter()
-	r.Use(h.authMiddleware)
 
-	// Service-level
-	r.Get("/", h.listBuckets)
+	// OPTIONS preflight — no authentication required; resolves bucket CORS config.
+	r.Options("/{bucket}", h.corsOptions)
+	r.Options("/{bucket}/*", h.corsOptions)
 
-	// Bucket-level
-	r.Head("/{bucket}", h.headBucket)
-	r.Get("/{bucket}", h.listObjectsV2)
-	r.Post("/{bucket}", h.postOnBucket)
+	// All S3 operations require Sig V4 authentication.
+	r.Group(func(r chi.Router) {
+		r.Use(h.authMiddleware)
 
-	// Object-level (key may contain slashes)
-	r.Head("/{bucket}/*", h.headObject)
-	r.Get("/{bucket}/*", h.getObject)
-	r.Put("/{bucket}/*", h.putObject)
-	r.Delete("/{bucket}/*", h.deleteObject)
-	r.Post("/{bucket}/*", h.postOnKey)
+		// Service-level
+		r.Get("/", h.listBuckets)
+
+		// Bucket-level
+		r.Head("/{bucket}", h.headBucket)
+		r.Get("/{bucket}", h.listObjectsV2)
+		r.Post("/{bucket}", h.postOnBucket)
+
+		// Object-level (key may contain slashes)
+		r.Head("/{bucket}/*", h.headObject)
+		r.Get("/{bucket}/*", h.getObject)
+		r.Put("/{bucket}/*", h.putObject)
+		r.Delete("/{bucket}/*", h.deleteObject)
+		r.Post("/{bucket}/*", h.postOnKey)
+	})
 
 	return r
 }
@@ -97,6 +105,59 @@ func (h *Handler) resolveBucket(w http.ResponseWriter, r *http.Request, bucketNa
 	}
 
 	return rb, be, true
+}
+
+// corsOptions handles CORS preflight (OPTIONS) requests without authentication.
+// It looks up the bucket's allowed origins and responds with appropriate headers.
+func (h *Handler) corsOptions(w http.ResponseWriter, r *http.Request) {
+	bucket, _ := bucketAndKey(r)
+	origins, err := h.mgr.GetBucketAllowedOrigins(r.Context(), bucket)
+	if err != nil || len(origins) == 0 {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+
+	origin := r.Header.Get("Origin")
+	if !originAllowed(origin, origins) {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, PUT, DELETE, POST")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, x-amz-date, x-amz-content-sha256, x-amz-security-token, x-amz-decoded-content-length")
+	w.Header().Set("Access-Control-Max-Age", "3600")
+	w.Header().Add("Vary", "Origin")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// setCORSHeaders sets Access-Control-Allow-Origin on the response when the
+// request Origin matches any of the store's allowed origins.
+func setCORSHeaders(w http.ResponseWriter, r *http.Request, allowedOrigins []string) {
+	if len(allowedOrigins) == 0 {
+		return
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" || !originAllowed(origin, allowedOrigins) {
+		return
+	}
+	for _, ao := range allowedOrigins {
+		if ao == "*" {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			return
+		}
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Add("Vary", "Origin")
+}
+
+func originAllowed(origin string, allowedOrigins []string) bool {
+	for _, ao := range allowedOrigins {
+		if ao == "*" || ao == origin {
+			return true
+		}
+	}
+	return false
 }
 
 // backendErr maps backend errors to S3 error responses.

@@ -87,7 +87,7 @@ func main() {
 	// /healthz is mounted outside bearerAuth so probes can reach it freely.
 	adminMux := http.NewServeMux()
 	adminMux.Handle("/healthz", healthHandler)
-	adminMux.Handle("/", admin.New(mgr, cryptoKey, backendPool, adminToken, cfg.AdminBasePath))
+	adminMux.Handle("/", admin.New(mgr, cryptoKey, backendPool, adminToken, cfg.AdminBasePath, cfg.AdminAllowedOrigins))
 	adminSrv := &http.Server{
 		Addr:         cfg.AdminAddr,
 		Handler:      adminMux,
