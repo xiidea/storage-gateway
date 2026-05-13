@@ -23,6 +23,9 @@ Consumer (AWS SDK)  ──→  Gateway :8080  ──→  S3 / GCS / R2 / Azure /
   - [Access keys](#access-keys)
   - [Stores](#stores)
   - [Bucket mappings](#bucket-mappings)
+- [CORS](#cors)
+  - [Admin API CORS](#admin-api-cors)
+  - [Per-store file serving CORS](#per-store-file-serving-cors)
 - [Consumer setup](#consumer-setup)
 - [Backend configuration](#backend-configuration)
 - [Presigned URL modes](#presigned-url-modes)
@@ -92,6 +95,7 @@ All configuration is via environment variables.
 | `GATEWAY_REGION` | | `us-east-1` | AWS region consumers must configure in their SDK |
 | `CACHE_TTL` | | `5m` | How long registry entries are cached in Redis |
 | `ADMIN_BASE_PATH` | | _(none)_ | Optional URL prefix for all Admin API routes (e.g. `/api`). `GET /healthz` is always at the root regardless of this setting. |
+| `ADMIN_ALLOWED_ORIGINS` | | _(none)_ | Comma-separated list of origins permitted to make cross-origin requests to the Admin API. Use `*` to allow all origins. See [Admin API CORS](#admin-api-cors). |
 
 ---
 
@@ -238,6 +242,7 @@ POST /tenants/{tenantID}/stores
   "name": "primary",
   "backend_type": "s3",
   "presigned_mode": "proxy",
+  "allowed_origins": [],
   "created_at": "...",
   "updated_at": "..."
 }
@@ -326,6 +331,94 @@ DELETE /tenants/{tenantID}/stores/{storeID}/buckets/{mappingID}
 ```
 204 No Content
 ```
+
+---
+
+## CORS
+
+### Admin API CORS
+
+By default the Admin API does not send any CORS headers. To allow browser-based dashboards or tooling to call it, set `ADMIN_ALLOWED_ORIGINS` to a comma-separated list of permitted origins:
+
+```bash
+# Allow a specific origin
+ADMIN_ALLOWED_ORIGINS=https://dashboard.example.com
+
+# Allow multiple origins
+ADMIN_ALLOWED_ORIGINS=https://dashboard.example.com,https://staging.example.com
+
+# Allow all origins (development only)
+ADMIN_ALLOWED_ORIGINS=*
+```
+
+When a request arrives with a matching `Origin` header, the gateway responds with:
+
+```
+Access-Control-Allow-Origin: https://dashboard.example.com
+Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+Access-Control-Allow-Headers: Authorization, Content-Type
+```
+
+`OPTIONS` preflight requests are handled automatically and return `204 No Content`.
+
+---
+
+### Per-store file serving CORS
+
+Each store has an `allowed_origins` list that controls which browser origins may fetch objects through the S3 gateway. This enables browser apps to `fetch()` files directly from the gateway without a proxy.
+
+#### Get allowed origins
+
+```
+GET /tenants/{tenantID}/stores/{storeID}/cors
+```
+
+```json
+// 200 OK
+{ "allowed_origins": ["https://app.example.com"] }
+```
+
+#### Set allowed origins
+
+Replaces the entire list. Pass an empty array to disable CORS for the store. Automatically evicts the Redis bucket cache so the change takes effect immediately.
+
+```
+PUT /tenants/{tenantID}/stores/{storeID}/cors
+```
+
+```json
+{ "allowed_origins": ["https://app.example.com", "https://staging.example.com"] }
+```
+
+```
+204 No Content
+```
+
+Use `"*"` to allow any origin:
+
+```json
+{ "allowed_origins": ["*"] }
+```
+
+#### How it works
+
+When a browser sends a `GET` or `HEAD` request with an `Origin` header that matches the store's `allowed_origins`, the gateway adds:
+
+```
+Access-Control-Allow-Origin: https://app.example.com
+Vary: Origin
+```
+
+For `OPTIONS` preflight requests, the gateway responds without requiring AWS Sig V4 authentication:
+
+```
+Access-Control-Allow-Origin: https://app.example.com
+Access-Control-Allow-Methods: GET, HEAD, PUT, DELETE, POST
+Access-Control-Allow-Headers: Content-Type, Authorization, x-amz-date, x-amz-content-sha256, ...
+Access-Control-Max-Age: 3600
+```
+
+> Presigned-redirect mode (`presigned_mode: redirect`) issues a 307 to the upstream provider. The upstream must have its own CORS policy configured for the browser to follow the redirect successfully.
 
 ---
 
