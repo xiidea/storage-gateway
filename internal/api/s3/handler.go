@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -24,15 +25,20 @@ type Handler struct {
 	cryptoKey []byte
 	pool      *backend.Pool
 	region    string
+	log       *slog.Logger
 }
 
 // New wires the S3 handler and returns it as an http.Handler.
-func New(mgr registry.Manager, cryptoKey []byte, pool *backend.Pool, region string) http.Handler {
+func New(mgr registry.Manager, cryptoKey []byte, pool *backend.Pool, region string, log *slog.Logger) http.Handler {
+	if log == nil {
+		log = slog.Default()
+	}
 	h := &Handler{
 		mgr:       mgr,
 		cryptoKey: cryptoKey,
 		pool:      pool,
 		region:    region,
+		log:       log,
 	}
 
 	r := chi.NewRouter()
@@ -100,6 +106,7 @@ func (h *Handler) resolveBucket(w http.ResponseWriter, r *http.Request, bucketNa
 
 	be, err := h.pool.Get(rb)
 	if err != nil {
+		h.log.Error("failed to initialise backend", "store_id", rb.StoreID, "backend_type", rb.BackendType, "err", err)
 		writeS3Error(w, http.StatusInternalServerError, "InternalError", "failed to initialise backend")
 		return nil, nil, false
 	}

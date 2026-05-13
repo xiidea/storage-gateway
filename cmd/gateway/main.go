@@ -100,7 +100,7 @@ func main() {
 	// /healthz also lives here so k8s readiness probes on the data-plane port work.
 	gatewayMux := http.NewServeMux()
 	gatewayMux.Handle("/healthz", healthHandler)
-	gatewayMux.Handle("/", apigw.New(mgr, cryptoKey, backendPool, cfg.GatewayRegion))
+	gatewayMux.Handle("/", apigw.New(mgr, cryptoKey, backendPool, cfg.GatewayRegion, log))
 	gatewaySrv := &http.Server{
 		Addr:         cfg.GatewayAddr,
 		Handler:      gatewayMux,

@@ -50,12 +50,14 @@ func (h *Handler) authMiddleware(next http.Handler) http.Handler {
 				writeS3Error(w, http.StatusForbidden, "InvalidAccessKeyId", "the access key does not exist")
 				return
 			}
+			h.log.Error("lookup access key", "err", err)
 			writeS3Error(w, http.StatusInternalServerError, "InternalError", "internal error")
 			return
 		}
 
 		secretKeyBytes, err := auth.Decrypt(h.cryptoKey, keyRow.SecretKeyEnc)
 		if err != nil {
+			h.log.Error("decrypt secret key", "key_id", pa.accessKeyID, "err", err)
 			writeS3Error(w, http.StatusInternalServerError, "InternalError", "internal error")
 			return
 		}
