@@ -586,6 +586,20 @@ Each store has a `presigned_mode` that controls how `GetObject` requests are ser
 
 `PUT`, `DELETE`, and all multipart operations always flow through the gateway regardless of mode.
 
+### Limitations of redirect mode
+
+**Read-only.** Only `GetObject` is redirected. All writes (`PutObject`, `DeleteObject`, multipart) and metadata operations (`HeadObject`, `ListObjectsV2`) always proxy through the gateway.
+
+**Short-lived URLs.** The upstream presigned URL is valid for 5 minutes from the moment the gateway generates it. If the client delays starting the download — for example, a video player that buffers the 307 response but opens the stream later — the upstream will reject the request with a 403. This is especially relevant for HLS/DASH playlists that embed gateway URLs: the `.m3u8` or `.mpd` manifest itself may be fetched quickly, but segment requests that arrive more than 5 minutes later will fail.
+
+**Upstream URL is exposed.** The `Location` header in the 307 response contains the actual upstream URL, including the bucket name and provider hostname (e.g. `s3.amazonaws.com`, `storage.googleapis.com`). Clients can see which cloud provider and bucket are behind the gateway.
+
+**CORS requires upstream configuration.** The gateway sets CORS headers on the 307 response itself, but the browser then follows the redirect directly to the upstream provider. The upstream bucket must have its own CORS policy that allows the consumer's origin — the gateway's per-store `allowed_origins` setting has no effect on that second request. See [Per-store file serving CORS](#per-store-file-serving-cors).
+
+**Not supported for the `local` backend.** The local filesystem backend does not implement presigned URLs. Using `redirect` mode with `backend_type: local` will return a 500 error at request time.
+
+**Upstream credentials must allow presigning.** The IAM role or service account stored in the backend config must have permission to generate presigned URLs (e.g. `s3:GetObject` on AWS). A read-only policy that does not include presigning will fail silently at redirect time.
+
 ---
 
 ## Docker
