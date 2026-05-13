@@ -104,6 +104,14 @@ func bearerAuth(token string) func(http.Handler) http.Handler {
 	}
 }
 
+// CORSMiddleware returns an HTTP middleware that sets CORS headers for the
+// given allowed origins. It handles OPTIONS preflight requests automatically.
+// Use this to wrap any handler that should share the same CORS policy as the
+// admin API (e.g. a /healthz endpoint mounted outside the chi router).
+func CORSMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
+	return corsMiddleware(allowedOrigins)
+}
+
 func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 	set := make(map[string]struct{}, len(allowedOrigins))
 	wildcard := false

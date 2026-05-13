@@ -85,12 +85,17 @@ func main() {
 
 	// --- Admin server ---
 	// /healthz is mounted outside bearerAuth so probes can reach it freely.
+	// The CORS middleware wraps the entire mux so /healthz also gets CORS headers.
 	adminMux := http.NewServeMux()
 	adminMux.Handle("/healthz", healthHandler)
 	adminMux.Handle("/", admin.New(mgr, cryptoKey, backendPool, adminToken, cfg.AdminBasePath, cfg.AdminAllowedOrigins))
+	var adminHandler http.Handler = adminMux
+	if len(cfg.AdminAllowedOrigins) > 0 {
+		adminHandler = admin.CORSMiddleware(cfg.AdminAllowedOrigins)(adminMux)
+	}
 	adminSrv := &http.Server{
 		Addr:         cfg.AdminAddr,
-		Handler:      adminMux,
+		Handler:      adminHandler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
