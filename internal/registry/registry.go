@@ -53,6 +53,7 @@ type Manager interface {
 
 	// Bucket mappings
 	CreateBucketMapping(ctx context.Context, storeID uuid.UUID, gatewayBucket, backendBucket string) (*BucketMapping, error)
+	GetBucketMapping(ctx context.Context, id, storeID uuid.UUID) (*BucketMapping, error)
 	ListBucketMappings(ctx context.Context, storeID uuid.UUID) ([]BucketMapping, error)
 	DeleteBucketMapping(ctx context.Context, id, storeID uuid.UUID) error
 

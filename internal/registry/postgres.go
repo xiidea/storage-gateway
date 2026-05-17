@@ -362,6 +362,25 @@ func (m *pgManager) CreateBucketMapping(ctx context.Context, storeID uuid.UUID, 
 	return bm, nil
 }
 
+func (m *pgManager) GetBucketMapping(ctx context.Context, id, storeID uuid.UUID) (*BucketMapping, error) {
+	const q = `
+		SELECT id, store_id, gateway_bucket, backend_bucket, created_at
+		FROM   bucket_mappings
+		WHERE  id = $1 AND store_id = $2`
+
+	var bm BucketMapping
+	err := m.pool.QueryRow(ctx, q, id, storeID).Scan(
+		&bm.ID, &bm.StoreID, &bm.GatewayBucket, &bm.BackendBucket, &bm.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrBucketNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get bucket mapping: %w", err)
+	}
+	return &bm, nil
+}
+
 func (m *pgManager) ListBucketMappings(ctx context.Context, storeID uuid.UUID) ([]BucketMapping, error) {
 	const q = `
 		SELECT id, store_id, gateway_bucket, backend_bucket, created_at

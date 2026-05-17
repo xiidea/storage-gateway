@@ -75,6 +75,13 @@ func New(mgr registry.Manager, cryptoKey []byte, pool *backend.Pool, adminToken,
 					r.Post("/", h.createBucketMapping)
 					r.Get("/", h.listBucketMappings)
 					r.Delete("/{mappingID}", h.deleteBucketMapping)
+
+					r.Route("/{mappingID}/browse", func(r chi.Router) {
+						r.Get("/", h.browseObjects)
+						r.Get("/metadata", h.browseMetadata)
+						r.Post("/presign", h.browsePresign)
+						r.Get("/size-stream", h.browseSizeStream)
+					})
 				})
 			})
 		})

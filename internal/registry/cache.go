@@ -246,6 +246,10 @@ func (c *cachedRegistry) CreateBucketMapping(ctx context.Context, storeID uuid.U
 	return c.inner.CreateBucketMapping(ctx, storeID, gatewayBucket, backendBucket)
 }
 
+func (c *cachedRegistry) GetBucketMapping(ctx context.Context, id, storeID uuid.UUID) (*BucketMapping, error) {
+	return c.inner.GetBucketMapping(ctx, id, storeID)
+}
+
 func (c *cachedRegistry) ListBucketMappings(ctx context.Context, storeID uuid.UUID) ([]BucketMapping, error) {
 	return c.inner.ListBucketMappings(ctx, storeID)
 }
