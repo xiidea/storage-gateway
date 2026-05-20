@@ -31,6 +31,7 @@ Consumer (AWS SDK)  ──→  Gateway :8080  ──→  S3 / GCS / R2 / Azure /
 - [Presigned URL modes](#presigned-url-modes)
 - [Docker](#docker)
 - [Security](#security)
+  - [MASTER_KEY rotation](#master_key-rotation)
 - [Development](#development)
 
 ---
@@ -614,7 +615,7 @@ docker run -d \
   -e REDIS_URL=redis://redis:6379 \
   -e MASTER_KEY=$(openssl rand -hex 32) \
   -e ADMIN_TOKEN=$(openssl rand -hex 24) \
-  ghcr.io/<owner>/storage-gateway:latest
+  ghcr.io/xiidea/storage-gateway:latest
 ```
 
 ### Published image tags
@@ -641,7 +642,46 @@ Images are built for `linux/amd64` and `linux/arm64`.
 
 **Signature verification.** Every S3 request is verified against the stored secret key using AWS Sig V4 before any backend call is made. Presigned URLs are validated for expiry and signature correctness.
 
-**`MASTER_KEY` rotation.** There is no built-in key rotation. To rotate: decrypt all stored credentials with the old key, re-encrypt with the new key, then update `MASTER_KEY`. Perform this as a maintenance operation with no in-flight requests.
+### MASTER_KEY rotation
+
+The `cmd/rotate-key` binary re-encrypts all secrets atomically in a single Postgres transaction, then flushes the Redis cache. It requires a brief maintenance window.
+
+```bash
+# Build the tool
+make build-rotate-key            # writes to bin/rotate-key
+
+# 1. Scale instances to zero (maintenance window begins)
+
+# 2. Dry-run: verify the old key decrypts every row without writing anything
+MASTER_KEY_OLD=<current-key> \
+MASTER_KEY_NEW=<new-key> \
+DATABASE_URL=<dsn> \
+./bin/rotate-key --dry-run
+# output: "dry-run complete — stores_verified=47 access_keys_verified=112"
+
+# 3. Run the actual rotation
+MASTER_KEY_OLD=<current-key> \
+MASTER_KEY_NEW=<new-key> \
+DATABASE_URL=<dsn> \
+REDIS_URL=<url> \
+./bin/rotate-key
+# output: "re-encryption committed stores=47 access_keys=112"
+# output: "redis cache flushed keys_deleted=159"
+
+# 4. Update MASTER_KEY in your secret store, then restart instances
+```
+
+**What the tool does:**
+
+1. Derives both keys via HKDF-SHA256 (same algorithm as the gateway).
+2. Sanity-probes one store row to confirm the old key is correct — aborts before touching anything if it fails.
+3. Locks and re-encrypts every `stores.backend_config_enc` and every non-revoked `access_keys.secret_key_enc` inside a single transaction. All rows succeed or nothing is written.
+4. On commit, pattern-deletes all `sgw:*` Redis keys using `SCAN` (non-blocking). Without this flush, cached blobs encrypted under the old key would cause decrypt failures until their TTL expires.
+
+**Redis unavailability.** If Redis is unreachable, the rotation still commits and the tool prints a warning. Cached entries will cause auth/backend errors for up to the `CACHE_TTL` duration (default 5 min). If that window is unacceptable, manually flush Redis after the tool exits:
+```bash
+redis-cli -u $REDIS_URL --scan --pattern 'sgw:*' | xargs redis-cli -u $REDIS_URL DEL
+```
 
 ---
 
@@ -653,6 +693,9 @@ make up
 
 # Build
 make build
+
+# Build the key-rotation tool
+make build-rotate-key            # writes to bin/rotate-key
 
 # Test
 make test
