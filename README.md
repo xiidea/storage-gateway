@@ -644,12 +644,24 @@ Images are built for `linux/amd64` and `linux/arm64`.
 
 ### MASTER_KEY rotation
 
-The `cmd/rotate-key` binary re-encrypts all secrets atomically in a single Postgres transaction, then flushes the Redis cache. It requires a brief maintenance window.
+The `rotate-key` binary re-encrypts all secrets atomically in a single Postgres transaction, then flushes the Redis cache. It requires a brief maintenance window.
+
+Pre-built binaries are attached to every [GitHub Release](../../releases). Download the version that matches your deployed gateway tag:
 
 ```bash
-# Build the tool
-make build-rotate-key            # writes to bin/rotate-key
+# Example: linux/amd64
+curl -Lo rotate-key https://github.com/ORG/REPO/releases/download/v1.2.3/rotate-key-linux-amd64
+chmod +x rotate-key
+```
 
+Or build from source:
+```bash
+make build-rotate-key            # writes to bin/rotate-key
+```
+
+> **Version matching.** Always use the `rotate-key` binary from the same release tag as the running gateway. Both must agree on the `DeriveKey` HKDF parameters.
+
+```bash
 # 1. Scale instances to zero (maintenance window begins)
 
 # 2. Dry-run: verify the old key decrypts every row without writing anything

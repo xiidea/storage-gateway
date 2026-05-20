@@ -1,0 +1,65 @@
+name: Release binaries
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish rotate-key
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build rotate-key for all platforms
+        run: |
+          mkdir -p dist
+          targets=(
+            "linux   amd64"
+            "linux   arm64"
+            "darwin  amd64"
+            "darwin  arm64"
+          )
+          for t in "${targets[@]}"; do
+            read -r os arch <<< "$t"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch \
+              go build -ldflags="-s -w" -trimpath \
+              -o "dist/rotate-key-${os}-${arch}" \
+              ./cmd/rotate-key
+            echo "built dist/rotate-key-${os}-${arch}"
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/rotate-key-*
+          generate_release_notes: true
+          body: |
+            ## rotate-key
+
+            Download the binary for your platform and use it to rotate `MASTER_KEY`.
+            **The binary version must match the deployed gateway tag.**
+
+            | Platform | File |
+            |---|---|
+            | Linux x86-64 | `rotate-key-linux-amd64` |
+            | Linux ARM64  | `rotate-key-linux-arm64` |
+            | macOS x86-64 | `rotate-key-darwin-amd64` |
+            | macOS Apple Silicon | `rotate-key-darwin-arm64` |
+
+            ```bash
+            curl -Lo rotate-key https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/rotate-key-linux-amd64
+            chmod +x rotate-key
+            MASTER_KEY_OLD=<old> MASTER_KEY_NEW=<new> DATABASE_URL=<dsn> REDIS_URL=<url> ./rotate-key --dry-run
+            ```
+
+            See the [MASTER_KEY rotation runbook](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/README.md#master_key-rotation) in the README.
