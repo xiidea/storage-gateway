@@ -46,9 +46,10 @@ func (h *Handler) createMultipartUpload(w http.ResponseWriter, r *http.Request) 
 		contentType = "application/octet-stream"
 	}
 
+	backendKey := rb.PrefixKey(key)
 	out, err := be.CreateMultipartUpload(r.Context(), backend.CreateMultipartUploadInput{
 		Bucket:      rb.BackendBucket,
-		Key:         key,
+		Key:         backendKey,
 		ContentType: contentType,
 		Metadata:    extractMetadata(r),
 	})
@@ -65,12 +66,12 @@ func (h *Handler) createMultipartUpload(w http.ResponseWriter, r *http.Request) 
 		BackendUploadID: out.UploadID,
 		GatewayBucket:   bucket,
 		BackendBucket:   rb.BackendBucket,
-		ObjectKey:       key,
+		ObjectKey:       key, // gateway key — used for validation on subsequent requests
 	}); err != nil {
 		// Best-effort: try to abort the backend upload to avoid orphaned parts.
 		be.AbortMultipartUpload(r.Context(), backend.AbortMultipartUploadInput{ //nolint:errcheck
 			Bucket:   rb.BackendBucket,
-			Key:      key,
+			Key:      backendKey,
 			UploadID: out.UploadID,
 		})
 		writeS3Error(w, http.StatusInternalServerError, "InternalError", "failed to record multipart upload")
@@ -113,7 +114,7 @@ func (h *Handler) uploadPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, be, ok := h.resolveBucket(w, r, bucket)
+	rb, be, ok := h.resolveBucket(w, r, bucket)
 	if !ok {
 		return
 	}
@@ -130,8 +131,8 @@ func (h *Handler) uploadPart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	out, err := be.UploadPart(r.Context(), backend.UploadPartInput{
-		Bucket:     mu.BackendBucket,
-		Key:        key,
+		Bucket:     rb.BackendBucket,
+		Key:        rb.PrefixKey(key),
 		UploadID:   mu.BackendUploadID,
 		PartNumber: int32(partNumber),
 		Body:       body,
@@ -169,7 +170,7 @@ func (h *Handler) completeMultipartUpload(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	_, be, ok := h.resolveBucket(w, r, bucket)
+	rb, be, ok := h.resolveBucket(w, r, bucket)
 	if !ok {
 		return
 	}
@@ -189,8 +190,8 @@ func (h *Handler) completeMultipartUpload(w http.ResponseWriter, r *http.Request
 	}
 
 	out, err := be.CompleteMultipartUpload(r.Context(), backend.CompleteMultipartUploadInput{
-		Bucket:   mu.BackendBucket,
-		Key:      key,
+		Bucket:   rb.BackendBucket,
+		Key:      rb.PrefixKey(key),
 		UploadID: mu.BackendUploadID,
 		Parts:    parts,
 	})
@@ -236,15 +237,15 @@ func (h *Handler) abortMultipartUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, be, ok := h.resolveBucket(w, r, bucket)
+	rb, be, ok := h.resolveBucket(w, r, bucket)
 	if !ok {
 		return
 	}
 
 	// Best-effort abort on the backend; some providers (Azure) treat this as a no-op.
 	be.AbortMultipartUpload(r.Context(), backend.AbortMultipartUploadInput{ //nolint:errcheck
-		Bucket:   mu.BackendBucket,
-		Key:      key,
+		Bucket:   rb.BackendBucket,
+		Key:      rb.PrefixKey(key),
 		UploadID: mu.BackendUploadID,
 	})
 

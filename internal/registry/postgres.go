@@ -74,6 +74,7 @@ func (m *pgManager) ResolveBucket(ctx context.Context, tenantID uuid.UUID, gatew
 	if rb.TenantID != tenantID {
 		return nil, ErrUnauthorized
 	}
+	rb.BackendBucket, rb.BackendPrefix = ParseBackendBucket(rb.BackendBucket)
 	return &rb, nil
 }
 

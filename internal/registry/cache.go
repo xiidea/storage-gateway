@@ -110,13 +110,15 @@ func (c *cachedRegistry) ResolveBucket(ctx context.Context, tenantID uuid.UUID, 
 				if tid != tenantID {
 					return nil, ErrUnauthorized
 				}
+				bucket, prefix := ParseBackendBucket(cached.BackendBucket)
 				return &ResolvedBucket{
 					StoreID:          storeID,
 					TenantID:         tid,
 					BackendType:      BackendType(cached.BackendType),
 					BackendConfigEnc: cached.BackendConfigEnc,
 					GatewayBucket:    gatewayBucket,
-					BackendBucket:    cached.BackendBucket,
+					BackendBucket:    bucket,
+					BackendPrefix:    prefix,
 					PresignedMode:    PresignedMode(cached.PresignedMode),
 					AllowedOrigins:   cached.AllowedOrigins,
 				}, nil

@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -68,6 +69,8 @@ type BucketMapping struct {
 }
 
 // ResolvedBucket contains everything a request handler needs to talk to the upstream.
+// BackendBucket is always the bare bucket name. BackendPrefix is the optional key
+// prefix parsed from the backend_bucket mapping value ("bucket/prefix/path").
 type ResolvedBucket struct {
 	StoreID          uuid.UUID
 	TenantID         uuid.UUID
@@ -75,8 +78,43 @@ type ResolvedBucket struct {
 	BackendConfigEnc []byte
 	GatewayBucket    string
 	BackendBucket    string
+	BackendPrefix    string
 	PresignedMode    PresignedMode
 	AllowedOrigins   []string
+}
+
+// PrefixKey prepends BackendPrefix to a gateway object key.
+// When key is empty (list prefix use-case), returns "prefix/" so the backend
+// lists only objects under that path.
+func (rb *ResolvedBucket) PrefixKey(key string) string {
+	if rb.BackendPrefix == "" {
+		return key
+	}
+	if key == "" {
+		return rb.BackendPrefix + "/"
+	}
+	return rb.BackendPrefix + "/" + key
+}
+
+// StripPrefix removes BackendPrefix from a backend key returned by the upstream,
+// translating it back to the gateway namespace.
+func (rb *ResolvedBucket) StripPrefix(backendKey string) string {
+	if rb.BackendPrefix == "" {
+		return backendKey
+	}
+	return strings.TrimPrefix(backendKey, rb.BackendPrefix+"/")
+}
+
+// ParseBackendBucket splits a raw backend_bucket mapping value into the bucket
+// name and an optional key prefix.
+//
+//	"my-bucket"              → ("my-bucket", "")
+//	"my-bucket/base/path"   → ("my-bucket", "base/path")
+func ParseBackendBucket(raw string) (bucket, prefix string) {
+	if i := strings.IndexByte(raw, '/'); i >= 0 {
+		return raw[:i], raw[i+1:]
+	}
+	return raw, ""
 }
 
 // GatewayBucket is a lightweight view used by the S3 ListBuckets response.

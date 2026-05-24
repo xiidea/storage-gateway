@@ -34,7 +34,7 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request) {
 	if rb.PresignedMode == registry.PresignedRedirect {
 		out, err := be.PresignURL(r.Context(), backend.PresignInput{
 			Bucket:  rb.BackendBucket,
-			Key:     key,
+			Key:     rb.PrefixKey(key),
 			Method:  "GET",
 			Expires: 5 * time.Minute,
 		})
@@ -49,7 +49,7 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request) {
 	// Proxy mode: stream bytes through the gateway.
 	out, err := be.GetObject(r.Context(), backend.GetObjectInput{
 		Bucket: rb.BackendBucket,
-		Key:    key,
+		Key:    rb.PrefixKey(key),
 		Range:  r.Header.Get("Range"),
 	})
 	if err != nil {
@@ -117,7 +117,7 @@ func (h *Handler) headObject(w http.ResponseWriter, r *http.Request) {
 
 	out, err := be.HeadObject(r.Context(), backend.HeadObjectInput{
 		Bucket: rb.BackendBucket,
-		Key:    key,
+		Key:    rb.PrefixKey(key),
 	})
 	if err != nil {
 		if backend.IsNotFound(err) {
@@ -194,7 +194,7 @@ func (h *Handler) doPutObject(w http.ResponseWriter, r *http.Request) {
 
 	out, err := be.PutObject(r.Context(), backend.PutObjectInput{
 		Bucket:      rb.BackendBucket,
-		Key:         key,
+		Key:         rb.PrefixKey(key),
 		Body:        body,
 		Size:        size,
 		ContentType: contentType,
@@ -232,7 +232,7 @@ func (h *Handler) deleteObject(w http.ResponseWriter, r *http.Request) {
 
 	if err := be.DeleteObject(r.Context(), backend.DeleteObjectInput{
 		Bucket: rb.BackendBucket,
-		Key:    key,
+		Key:    rb.PrefixKey(key),
 	}); err != nil {
 		h.backendErr(w, err)
 		return
@@ -258,7 +258,7 @@ func (h *Handler) deleteObjects(w http.ResponseWriter, r *http.Request) {
 
 	objects := make([]backend.ObjectIdentifier, len(req.Objects))
 	for i, o := range req.Objects {
-		objects[i] = backend.ObjectIdentifier{Key: o.Key}
+		objects[i] = backend.ObjectIdentifier{Key: rb.PrefixKey(o.Key)}
 	}
 
 	out, err := be.DeleteObjects(r.Context(), backend.DeleteObjectsInput{
@@ -273,10 +273,10 @@ func (h *Handler) deleteObjects(w http.ResponseWriter, r *http.Request) {
 
 	result := deleteResult{}
 	for _, d := range out.Deleted {
-		result.Deleted = append(result.Deleted, deletedXML{Key: d.Key})
+		result.Deleted = append(result.Deleted, deletedXML{Key: rb.StripPrefix(d.Key)})
 	}
 	for _, e := range out.Errors {
-		result.Error = append(result.Error, deleteErrorXML{Key: e.Key, Code: e.Code, Message: e.Message})
+		result.Error = append(result.Error, deleteErrorXML{Key: rb.StripPrefix(e.Key), Code: e.Code, Message: e.Message})
 	}
 
 	writeS3XML(w, http.StatusOK, result)

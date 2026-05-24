@@ -89,20 +89,22 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	clientPrefix := q.Get("prefix")
 	in := backend.ListObjectsInput{
 		Bucket:    rb.BackendBucket,
-		Prefix:    q.Get("prefix"),
+		Prefix:    rb.PrefixKey(clientPrefix),
 		Delimiter: q.Get("delimiter"),
 		MaxKeys:   maxKeys,
 	}
 	// Support both ListObjectsV1 (?marker) and V2 (?continuation-token / ?start-after).
+	// ContinuationToken is opaque — do not modify it.
 	if ct := q.Get("continuation-token"); ct != "" {
 		in.ContinuationToken = ct
 	}
 	if sa := q.Get("start-after"); sa != "" {
-		in.StartAfter = sa
+		in.StartAfter = rb.PrefixKey(sa)
 	} else if m := q.Get("marker"); m != "" {
-		in.StartAfter = m
+		in.StartAfter = rb.PrefixKey(m)
 	}
 
 	out, err := be.ListObjects(r.Context(), in)
@@ -113,13 +115,13 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request) {
 
 	result := listBucketResult{
 		Name:              bucket,
-		Prefix:            in.Prefix,
+		Prefix:            clientPrefix, // show the gateway prefix, not the backend-prefixed one
 		Delimiter:         in.Delimiter,
 		MaxKeys:           maxKeys,
 		KeyCount:          out.KeyCount,
 		IsTruncated:       out.IsTruncated,
 		ContinuationToken: q.Get("continuation-token"),
-		StartAfter:        in.StartAfter,
+		StartAfter:        q.Get("start-after"),
 	}
 	if out.IsTruncated {
 		result.NextContinuationToken = out.NextContinuationToken
@@ -131,7 +133,7 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request) {
 			sc = "STANDARD"
 		}
 		result.Contents = append(result.Contents, s3Object{
-			Key:          obj.Key,
+			Key:          rb.StripPrefix(obj.Key),
 			LastModified: obj.LastModified.UTC().Format(time.RFC3339Nano),
 			ETag:         `"` + obj.ETag + `"`,
 			Size:         obj.Size,
@@ -139,7 +141,7 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	for _, cp := range out.CommonPrefixes {
-		result.CommonPrefixes = append(result.CommonPrefixes, s3Prefix{Prefix: cp})
+		result.CommonPrefixes = append(result.CommonPrefixes, s3Prefix{Prefix: rb.StripPrefix(cp)})
 	}
 
 	writeS3XML(w, http.StatusOK, result)

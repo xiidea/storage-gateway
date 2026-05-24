@@ -12,9 +12,10 @@ import (
 )
 
 // resolveBrowseContext verifies the ownership chain tenant→store→mapping and
-// returns an initialised Backend and the BucketMapping. On failure it writes
-// the error response and returns false.
-func (h *Handler) resolveBrowseContext(w http.ResponseWriter, r *http.Request) (backend.Backend, *registry.BucketMapping, bool) {
+// returns an initialised Backend and the resolved bucket (with BackendBucket and
+// BackendPrefix already parsed from the mapping's backend_bucket value).
+// On failure it writes the error response and returns false.
+func (h *Handler) resolveBrowseContext(w http.ResponseWriter, r *http.Request) (*registry.ResolvedBucket, backend.Backend, bool) {
 	store, ok := h.verifyStoreOwnership(w, r)
 	if !ok {
 		return nil, nil, false
@@ -32,13 +33,15 @@ func (h *Handler) resolveBrowseContext(w http.ResponseWriter, r *http.Request) (
 		return nil, nil, false
 	}
 
+	bucket, prefix := registry.ParseBackendBucket(bm.BackendBucket)
 	rb := &registry.ResolvedBucket{
 		StoreID:          store.ID,
 		TenantID:         store.TenantID,
 		BackendType:      store.BackendType,
 		BackendConfigEnc: store.BackendConfigEnc,
 		GatewayBucket:    bm.GatewayBucket,
-		BackendBucket:    bm.BackendBucket,
+		BackendBucket:    bucket,
+		BackendPrefix:    prefix,
 		PresignedMode:    store.PresignedMode,
 		AllowedOrigins:   store.AllowedOrigins,
 	}
@@ -49,7 +52,7 @@ func (h *Handler) resolveBrowseContext(w http.ResponseWriter, r *http.Request) (
 		return nil, nil, false
 	}
 
-	return be, bm, true
+	return rb, be, true
 }
 
 // ---------------------------------------------------------------------------
@@ -76,14 +79,14 @@ type browseListResponse struct {
 }
 
 func (h *Handler) browseObjects(w http.ResponseWriter, r *http.Request) {
-	be, bm, ok := h.resolveBrowseContext(w, r)
+	rb, be, ok := h.resolveBrowseContext(w, r)
 	if !ok {
 		return
 	}
 
 	q := r.URL.Query()
 
-	prefix := q.Get("prefix")
+	clientPrefix := q.Get("prefix")
 
 	// Default delimiter to "/" unless the caller explicitly provides the param
 	// (even as an empty string, which means flat/recursive listing).
@@ -103,8 +106,8 @@ func (h *Handler) browseObjects(w http.ResponseWriter, r *http.Request) {
 	}
 
 	out, err := be.ListObjects(r.Context(), backend.ListObjectsInput{
-		Bucket:            bm.BackendBucket,
-		Prefix:            prefix,
+		Bucket:            rb.BackendBucket,
+		Prefix:            rb.PrefixKey(clientPrefix),
 		Delimiter:         delimiter,
 		MaxKeys:           maxKeys,
 		ContinuationToken: q.Get("continuation_token"),
@@ -121,7 +124,7 @@ func (h *Handler) browseObjects(w http.ResponseWriter, r *http.Request) {
 			sc = "STANDARD"
 		}
 		objects = append(objects, browseObject{
-			Key:          obj.Key,
+			Key:          rb.StripPrefix(obj.Key),
 			Size:         obj.Size,
 			LastModified: obj.LastModified.UTC().Format(time.RFC3339),
 			ETag:         quoteETag(obj.ETag),
@@ -129,9 +132,9 @@ func (h *Handler) browseObjects(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	prefixes := out.CommonPrefixes
-	if prefixes == nil {
-		prefixes = []string{}
+	strippedPrefixes := make([]string, len(out.CommonPrefixes))
+	for i, cp := range out.CommonPrefixes {
+		strippedPrefixes[i] = rb.StripPrefix(cp)
 	}
 
 	var nextToken *string
@@ -141,14 +144,14 @@ func (h *Handler) browseObjects(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, browseListResponse{
-		Prefix:                prefix,
+		Prefix:                clientPrefix,
 		Delimiter:             delimiter,
 		MaxKeys:               maxKeys,
-		KeyCount:              len(objects) + len(prefixes),
+		KeyCount:              len(objects) + len(strippedPrefixes),
 		IsTruncated:           out.IsTruncated,
 		NextContinuationToken: nextToken,
 		Objects:               objects,
-		CommonPrefixes:        prefixes,
+		CommonPrefixes:        strippedPrefixes,
 	})
 }
 
@@ -157,7 +160,7 @@ func (h *Handler) browseObjects(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (h *Handler) browseMetadata(w http.ResponseWriter, r *http.Request) {
-	be, bm, ok := h.resolveBrowseContext(w, r)
+	rb, be, ok := h.resolveBrowseContext(w, r)
 	if !ok {
 		return
 	}
@@ -169,8 +172,8 @@ func (h *Handler) browseMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 
 	out, err := be.HeadObject(r.Context(), backend.HeadObjectInput{
-		Bucket: bm.BackendBucket,
-		Key:    key,
+		Bucket: rb.BackendBucket,
+		Key:    rb.PrefixKey(key),
 	})
 	if err != nil {
 		if backend.IsNotFound(err) {
@@ -207,7 +210,7 @@ const (
 )
 
 func (h *Handler) browsePresign(w http.ResponseWriter, r *http.Request) {
-	be, bm, ok := h.resolveBrowseContext(w, r)
+	rb, be, ok := h.resolveBrowseContext(w, r)
 	if !ok {
 		return
 	}
@@ -234,8 +237,8 @@ func (h *Handler) browsePresign(w http.ResponseWriter, r *http.Request) {
 
 	expiry := time.Duration(req.ExpiresIn) * time.Second
 	out, err := be.PresignURL(r.Context(), backend.PresignInput{
-		Bucket:  bm.BackendBucket,
-		Key:     req.Key,
+		Bucket:  rb.BackendBucket,
+		Key:     rb.PrefixKey(req.Key),
 		Method:  "GET",
 		Expires: expiry,
 	})
@@ -255,12 +258,12 @@ func (h *Handler) browsePresign(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (h *Handler) browseSizeStream(w http.ResponseWriter, r *http.Request) {
-	be, bm, ok := h.resolveBrowseContext(w, r)
+	rb, be, ok := h.resolveBrowseContext(w, r)
 	if !ok {
 		return
 	}
 
-	prefix := r.URL.Query().Get("prefix")
+	clientPrefix := r.URL.Query().Get("prefix")
 
 	flusher, canFlush := w.(http.Flusher)
 
@@ -281,8 +284,8 @@ func (h *Handler) browseSizeStream(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		out, err := be.ListObjects(r.Context(), backend.ListObjectsInput{
-			Bucket:            bm.BackendBucket,
-			Prefix:            prefix,
+			Bucket:            rb.BackendBucket,
+			Prefix:            rb.PrefixKey(clientPrefix),
 			MaxKeys:           1000,
 			ContinuationToken: token,
 		})
