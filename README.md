@@ -23,6 +23,7 @@ Consumer (AWS SDK)  ──→  Gateway :8080  ──→  S3 / GCS / R2 / Azure /
   - [Access keys](#access-keys)
   - [Stores](#stores)
   - [Bucket mappings](#bucket-mappings)
+  - [Bucket prefix](#bucket-prefix)
 - [CORS](#cors)
   - [Admin API CORS](#admin-api-cors)
   - [Per-store file serving CORS](#per-store-file-serving-cors)
@@ -44,7 +45,7 @@ The gateway introduces three concepts that sit between a consumer and its upstre
 |---|---|
 | **Tenant** | An isolated unit (a team, a service, a customer). Each tenant has its own access credentials and stores. |
 | **Store** | One upstream provider account — S3 bucket group, a GCS project, an Azure storage account, etc. Each store has exactly one backend type and one set of credentials, stored encrypted. |
-| **Bucket mapping** | Maps a **gateway bucket name** (globally unique, what the consumer sees) to a **backend bucket name** on the upstream. Multiple mappings can point at buckets inside the same store. |
+| **Bucket mapping** | Maps a **gateway bucket name** (globally unique, what the consumer sees) to a **backend bucket** on the upstream. The backend value may include an optional key prefix (`bucket/prefix/path`) to scope the mapping to a subdirectory within the upstream bucket. Multiple mappings can point at buckets inside the same store. |
 
 On every request:
 
@@ -291,7 +292,7 @@ DELETE /tenants/{tenantID}/stores/{storeID}
 
 ### Bucket mappings
 
-A bucket mapping connects a **gateway bucket name** (globally unique across all tenants) to a **backend bucket name** inside a store.
+A bucket mapping connects a **gateway bucket name** (globally unique across all tenants) to a **backend bucket** inside a store.
 
 #### Create a bucket mapping
 
@@ -332,6 +333,34 @@ DELETE /tenants/{tenantID}/stores/{storeID}/buckets/{mappingID}
 ```
 204 No Content
 ```
+
+---
+
+### Bucket prefix
+
+`backend_bucket` accepts an optional key prefix after the bucket name, separated by `/`:
+
+```
+"backend_bucket": "prod-uploads-eu/team-alpha/uploads"
+```
+
+The prefix is applied to every backend operation transparently. Consumers and the Admin browse API always see keys **relative to the prefix** — the prefix is never visible to them.
+
+| Consumer operation | Backend operation |
+|---|---|
+| `PUT acme-uploads/photo.jpg` | `PUT prod-uploads-eu` key `team-alpha/uploads/photo.jpg` |
+| `GET acme-uploads/photo.jpg` | `GET prod-uploads-eu` key `team-alpha/uploads/photo.jpg` |
+| `LIST acme-uploads/` (no prefix) | List `prod-uploads-eu` with prefix `team-alpha/uploads/` |
+| `LIST acme-uploads/?prefix=2024/` | List `prod-uploads-eu` with prefix `team-alpha/uploads/2024/` |
+| `DELETE acme-uploads/photo.jpg` | `DELETE prod-uploads-eu` key `team-alpha/uploads/photo.jpg` |
+
+**Common use cases:**
+
+- **Namespace isolation.** Point multiple gateway buckets at different subdirectories of the same upstream bucket: `prod-eu/tenant-a`, `prod-eu/tenant-b`.
+- **Existing data.** Map a gateway bucket to a legacy prefix without reorganising objects on the backend.
+- **Shared backend bucket.** One physical bucket, multiple logical namespaces, one set of credentials per store.
+
+Prefix support applies to all operations including multipart uploads, presigned redirect URLs, and the Admin browse API. No schema migration is required — the value is stored as-is in `backend_bucket`.
 
 ---
 
