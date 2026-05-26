@@ -2,14 +2,7 @@
 
 A multi-tenant S3-compatible storage proxy. Consumer services talk S3 (AWS Sig V4); the gateway routes each request to the actual upstream provider — AWS S3, Google Cloud Storage, Cloudflare R2, Azure Blob Storage, or a local filesystem — without ever buffering file content in memory.
 
-```
-Consumer (AWS SDK)  ──→  Gateway :8080  ──→  S3 / GCS / R2 / Azure / Local
-                               │
-          Admin API :9001 ──────┤
-                               │
-                          Postgres (registry)
-                          Redis   (hot-path cache)
-```
+![Architecture Digram](./assets/diagram.jpeg)
 
 ---
 
