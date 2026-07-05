@@ -7,6 +7,7 @@ var (
 	ErrBucketNotFound = errors.New("bucket not found")
 	ErrAccessDenied   = errors.New("access denied by upstream")
 	ErrUnknownSize    = errors.New("content length required but not provided")
+	ErrInvalidRange   = errors.New("requested range not satisfiable")
 	ErrUpstreamError  = errors.New("upstream storage error")
 )
 

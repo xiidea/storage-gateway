@@ -178,6 +178,8 @@ func (h *Handler) backendErr(w http.ResponseWriter, err error) {
 		writeS3Error(w, http.StatusForbidden, "AccessDenied", "access denied by upstream")
 	case errors.Is(err, backend.ErrUnknownSize):
 		writeS3Error(w, http.StatusLengthRequired, "MissingContentLength", "content length is required")
+	case errors.Is(err, backend.ErrInvalidRange):
+		writeS3Error(w, http.StatusRequestedRangeNotSatisfiable, "InvalidRange", "the requested range is not satisfiable")
 	default:
 		writeS3Error(w, http.StatusBadGateway, "InternalError", "upstream storage error")
 	}

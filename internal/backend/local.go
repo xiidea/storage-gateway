@@ -85,12 +85,12 @@ func (b *localBackend) GetObject(_ context.Context, in GetObjectInput) (*GetObje
 		offset, length, parseErr := parseHTTPRange(in.Range)
 		if parseErr != nil {
 			f.Close()
-			return nil, fmt.Errorf("%w: invalid range %q: %w", ErrUpstreamError, in.Range, parseErr)
+			return nil, fmt.Errorf("%w: %q: %w", ErrInvalidRange, in.Range, parseErr)
 		}
 		size := info.Size()
 		if offset >= size {
 			f.Close()
-			return nil, fmt.Errorf("%w: range %q starts beyond object size %d", ErrUpstreamError, in.Range, size)
+			return nil, fmt.Errorf("%w: %q starts beyond object size %d", ErrInvalidRange, in.Range, size)
 		}
 		if length < 0 || offset+length > size {
 			length = size - offset

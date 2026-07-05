@@ -81,7 +81,7 @@ func (b *gcsBackend) GetObject(ctx context.Context, in GetObjectInput) (*GetObje
 	if in.Range != "" {
 		offset, length, parseErr := parseHTTPRange(in.Range)
 		if parseErr != nil {
-			return nil, fmt.Errorf("invalid range %q: %w", in.Range, parseErr)
+			return nil, fmt.Errorf("%w: %q: %w", ErrInvalidRange, in.Range, parseErr)
 		}
 		rc, err = obj.NewRangeReader(ctx, offset, length)
 		if err == nil {
@@ -384,6 +384,8 @@ func mapGCSErr(err error) error {
 			return ErrObjectNotFound
 		case 403:
 			return ErrAccessDenied
+		case 416:
+			return fmt.Errorf("%w: %w", ErrInvalidRange, err)
 		}
 	}
 	return fmt.Errorf("%w: %w", ErrUpstreamError, err)

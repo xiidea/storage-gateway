@@ -328,6 +328,8 @@ func mapS3Err(err error) error {
 			return ErrBucketNotFound
 		case "AccessDenied", "Forbidden":
 			return ErrAccessDenied
+		case "InvalidRange":
+			return fmt.Errorf("%w: %w", ErrInvalidRange, err)
 		}
 	}
 	return fmt.Errorf("%w: %w", ErrUpstreamError, err)

@@ -93,7 +93,7 @@ func (b *azureBackend) GetObject(ctx context.Context, in GetObjectInput) (*GetOb
 	if in.Range != "" {
 		offset, count, err := parseAzureRange(in.Range)
 		if err != nil {
-			return nil, fmt.Errorf("invalid range %q: %w", in.Range, err)
+			return nil, fmt.Errorf("%w: %q: %w", ErrInvalidRange, in.Range, err)
 		}
 		opts.Range = blobpkg.HTTPRange{Offset: offset, Count: count}
 	}
@@ -367,6 +367,8 @@ func mapAzureErr(err error) error {
 			return ErrBucketNotFound
 		case 403:
 			return ErrAccessDenied
+		case 416:
+			return fmt.Errorf("%w: %w", ErrInvalidRange, err)
 		}
 	}
 	return fmt.Errorf("%w: %w", ErrUpstreamError, err)

@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -44,6 +45,8 @@ func TestLocalGetObjectRange(t *testing.T) {
 			if err == nil {
 				out.Body.Close()
 				t.Errorf("range %q: expected error, got none", c.rng)
+			} else if !errors.Is(err, ErrInvalidRange) {
+				t.Errorf("range %q: error = %v, want ErrInvalidRange", c.rng, err)
 			}
 			continue
 		}
