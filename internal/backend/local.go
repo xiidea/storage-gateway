@@ -67,14 +67,46 @@ func (b *localBackend) GetObject(_ context.Context, in GetObjectInput) (*GetObje
 	if err != nil {
 		return nil, fmt.Errorf("%w: open: %w", ErrUpstreamError, err)
 	}
-	info, _ := f.Stat()
-	return &GetObjectOutput{
+	info, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, fmt.Errorf("%w: stat: %w", ErrUpstreamError, err)
+	}
+
+	out := &GetObjectOutput{
 		Body:          f,
 		ContentLength: info.Size(),
 		ContentType:   "application/octet-stream",
 		ETag:          localETag(info),
 		LastModified:  info.ModTime(),
-	}, nil
+	}
+
+	if in.Range != "" {
+		offset, length, parseErr := parseHTTPRange(in.Range)
+		if parseErr != nil {
+			f.Close()
+			return nil, fmt.Errorf("%w: invalid range %q: %w", ErrUpstreamError, in.Range, parseErr)
+		}
+		size := info.Size()
+		if offset >= size {
+			f.Close()
+			return nil, fmt.Errorf("%w: range %q starts beyond object size %d", ErrUpstreamError, in.Range, size)
+		}
+		if length < 0 || offset+length > size {
+			length = size - offset
+		}
+		if _, err := f.Seek(offset, io.SeekStart); err != nil {
+			f.Close()
+			return nil, fmt.Errorf("%w: seek: %w", ErrUpstreamError, err)
+		}
+		out.Body = struct {
+			io.Reader
+			io.Closer
+		}{io.LimitReader(f, length), f}
+		out.ContentLength = length
+		out.ContentRange = fmt.Sprintf("bytes %d-%d/%d", offset, offset+length-1, size)
+	}
+	return out, nil
 }
 
 func (b *localBackend) PutObject(_ context.Context, in PutObjectInput) (*PutObjectOutput, error) {

@@ -76,6 +76,7 @@ func (b *gcsBackend) GetObject(ctx context.Context, in GetObjectInput) (*GetObje
 
 	var rc *storage.Reader
 	var contentRange string
+	contentLength := fullAttrs.Size
 
 	if in.Range != "" {
 		offset, length, parseErr := parseHTTPRange(in.Range)
@@ -84,7 +85,10 @@ func (b *gcsBackend) GetObject(ctx context.Context, in GetObjectInput) (*GetObje
 		}
 		rc, err = obj.NewRangeReader(ctx, offset, length)
 		if err == nil {
-			end := offset + rc.Attrs.Size - 1
+			// rc.Attrs.Size is the full object size; Remain() is the number of
+			// bytes this range reader will actually return.
+			contentLength = rc.Remain()
+			end := offset + contentLength - 1
 			contentRange = fmt.Sprintf("bytes %d-%d/%d", offset, end, fullAttrs.Size)
 		}
 	} else {
@@ -96,7 +100,7 @@ func (b *gcsBackend) GetObject(ctx context.Context, in GetObjectInput) (*GetObje
 
 	return &GetObjectOutput{
 		Body:          rc,
-		ContentLength: fullAttrs.Size,
+		ContentLength: contentLength,
 		ContentRange:  contentRange,
 		ContentType:   fullAttrs.ContentType,
 		ETag:          fullAttrs.Etag,
