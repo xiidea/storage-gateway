@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -86,8 +87,23 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
 
-	io.Copy(w, out.Body) //nolint:errcheck
+	buf := copyBufPool.Get().(*[]byte)
+	io.CopyBuffer(writerOnly{w}, out.Body, *buf) //nolint:errcheck
+	copyBufPool.Put(buf)
 }
+
+// copyBufPool provides 1 MiB buffers for streaming object bodies; io.Copy's
+// default 32 KiB buffer throttles multi-gigabyte transfers.
+var copyBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 1<<20)
+		return &b
+	},
+}
+
+// writerOnly hides http.ResponseWriter's ReadFrom so io.CopyBuffer uses the
+// pooled buffer instead of net/http's small internal one.
+type writerOnly struct{ io.Writer }
 
 // HEAD /{bucket}/{key}
 func (h *Handler) headObject(w http.ResponseWriter, r *http.Request) {

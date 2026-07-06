@@ -68,40 +68,53 @@ func (b *gcsBackend) HeadObject(ctx context.Context, in HeadObjectInput) (*HeadO
 func (b *gcsBackend) GetObject(ctx context.Context, in GetObjectInput) (*GetObjectOutput, error) {
 	obj := b.client.Bucket(in.Bucket).Object(in.Key)
 
-	// Fetch full object attributes for ETag (ReaderObjectAttrs does not include it).
-	fullAttrs, err := obj.Attrs(ctx)
-	if err != nil {
-		return nil, mapGCSErr(err)
-	}
-
-	var rc *storage.Reader
-	var contentRange string
-	contentLength := fullAttrs.Size
-
+	// Ranged reads deliberately skip the separate Attrs round-trip: clients
+	// issue hundreds of ranged GETs for one large download, and the range
+	// reader's response already carries everything needed. The ETag is
+	// derived from the object generation, so it differs in format from the
+	// JSON-API ETag returned on full reads and HEADs.
 	if in.Range != "" {
 		offset, length, parseErr := parseHTTPRange(in.Range)
 		if parseErr != nil {
 			return nil, fmt.Errorf("%w: %q: %w", ErrInvalidRange, in.Range, parseErr)
 		}
-		rc, err = obj.NewRangeReader(ctx, offset, length)
-		if err == nil {
-			// rc.Attrs.Size is the full object size; Remain() is the number of
-			// bytes this range reader will actually return.
-			contentLength = rc.Remain()
-			end := offset + contentLength - 1
-			contentRange = fmt.Sprintf("bytes %d-%d/%d", offset, end, fullAttrs.Size)
+		rc, err := obj.NewRangeReader(ctx, offset, length)
+		if err != nil {
+			return nil, mapGCSErr(err)
 		}
-	} else {
-		rc, err = obj.NewReader(ctx)
+		// rc.Attrs.Size is the full object size; Remain() is the number of
+		// bytes this range reader will actually return. Remain() is -1 for
+		// decompressive transcoding, where the range length is unknown.
+		var contentRange string
+		contentLength := rc.Remain()
+		if contentLength >= 0 {
+			contentRange = fmt.Sprintf("bytes %d-%d/%d", offset, offset+contentLength-1, rc.Attrs.Size)
+		}
+		return &GetObjectOutput{
+			Body:          rc,
+			ContentLength: contentLength,
+			ContentRange:  contentRange,
+			ContentType:   rc.Attrs.ContentType,
+			ETag:          fmt.Sprintf("%d-%d", rc.Attrs.Generation, rc.Attrs.Metageneration),
+			LastModified:  rc.Attrs.LastModified,
+			Metadata:      rc.Metadata(),
+		}, nil
 	}
+
+	// Full reads fetch Attrs for the ETag and metadata (one extra round trip,
+	// amortized over the whole object).
+	fullAttrs, err := obj.Attrs(ctx)
+	if err != nil {
+		return nil, mapGCSErr(err)
+	}
+	rc, err := obj.NewReader(ctx)
 	if err != nil {
 		return nil, mapGCSErr(err)
 	}
 
 	return &GetObjectOutput{
 		Body:          rc,
-		ContentLength: contentLength,
-		ContentRange:  contentRange,
+		ContentLength: fullAttrs.Size,
 		ContentType:   fullAttrs.ContentType,
 		ETag:          fullAttrs.Etag,
 		LastModified:  fullAttrs.Updated,
