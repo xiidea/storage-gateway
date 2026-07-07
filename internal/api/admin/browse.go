@@ -3,6 +3,7 @@ package admin
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -48,6 +49,7 @@ func (h *Handler) resolveBrowseContext(w http.ResponseWriter, r *http.Request) (
 
 	be, err := h.pool.Get(rb)
 	if err != nil {
+		slog.Error("failed to initialise backend", "store_id", rb.StoreID, "backend_type", rb.BackendType, "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to initialise backend")
 		return nil, nil, false
 	}
