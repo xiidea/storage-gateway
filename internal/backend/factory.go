@@ -44,6 +44,48 @@ type LocalConfig struct {
 	RootPath string `json:"root_path"`
 }
 
+// normalizeGCSCredentials extracts the service-account key from a GCS backend
+// config, accepting the shapes commonly submitted:
+//
+//	{"credentials_json": {...key object...}}   — canonical
+//	{"credentials_json": "{...stringified...}"} — key pasted as a JSON string
+//	{...key object...}                          — bare key as the whole config
+//
+// Missing or empty credentials are an error: silently falling back to the
+// SDK's Application Default Credentials would use ambient machine identity
+// for a tenant-scoped store.
+func normalizeGCSCredentials(configJSON []byte) (json.RawMessage, error) {
+	var cfg GCSConfig
+	if err := json.Unmarshal(configJSON, &cfg); err != nil {
+		return nil, fmt.Errorf("parsing gcs config: %w", err)
+	}
+	creds := cfg.CredentialsJSON
+
+	// Stringified key: unwrap one level of JSON string quoting.
+	if len(creds) > 0 && creds[0] == '"' {
+		var s string
+		if err := json.Unmarshal(creds, &s); err != nil {
+			return nil, fmt.Errorf("parsing gcs credentials_json string: %w", err)
+		}
+		creds = json.RawMessage(s)
+	}
+
+	// Bare service-account key submitted as the whole config.
+	if len(creds) == 0 || string(creds) == "null" {
+		var probe struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(configJSON, &probe) == nil && probe.Type == "service_account" {
+			creds = configJSON
+		}
+	}
+
+	if len(creds) == 0 || string(creds) == "null" {
+		return nil, fmt.Errorf("gcs config: credentials_json (service account key) is required")
+	}
+	return creds, nil
+}
+
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
@@ -60,11 +102,11 @@ func New(backendType registry.BackendType, configJSON []byte) (Backend, error) {
 		return newS3Backend(cfg)
 
 	case registry.BackendGCS:
-		var cfg GCSConfig
-		if err := json.Unmarshal(configJSON, &cfg); err != nil {
-			return nil, fmt.Errorf("parsing gcs config: %w", err)
+		creds, err := normalizeGCSCredentials(configJSON)
+		if err != nil {
+			return nil, err
 		}
-		return newGCSBackend(cfg)
+		return newGCSBackend(GCSConfig{CredentialsJSON: creds})
 
 	case registry.BackendAzure:
 		var cfg AzureConfig
