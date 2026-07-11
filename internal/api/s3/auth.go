@@ -80,6 +80,13 @@ func (h *Handler) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Readonly keys may only perform read/query operations (GET, HEAD).
+		// PUT, DELETE and POST (uploads, multipart, batch delete) are denied.
+		if keyRow.Readonly && r.Method != http.MethodGet && r.Method != http.MethodHead {
+			writeS3Error(w, http.StatusForbidden, "AccessDenied", "access key is read-only")
+			return
+		}
+
 		ctx := context.WithValue(r.Context(), ctxTenantID, keyRow.TenantID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

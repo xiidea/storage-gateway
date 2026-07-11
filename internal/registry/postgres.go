@@ -27,14 +27,14 @@ func NewPostgres(pool *pgxpool.Pool) Manager {
 
 func (m *pgManager) LookupAccessKey(ctx context.Context, accessKey string) (*AccessKeyRow, error) {
 	const q = `
-		SELECT id, tenant_id, secret_key_enc, created_at
+		SELECT id, tenant_id, secret_key_enc, readonly, created_at
 		FROM   access_keys
 		WHERE  access_key = $1 AND revoked_at IS NULL`
 
 	var row AccessKeyRow
 	row.AccessKey = accessKey
 	err := m.pool.QueryRow(ctx, q, accessKey).Scan(
-		&row.ID, &row.TenantID, &row.SecretKeyEnc, &row.CreatedAt,
+		&row.ID, &row.TenantID, &row.SecretKeyEnc, &row.Readonly, &row.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrAccessKeyNotFound
@@ -155,10 +155,10 @@ func (m *pgManager) GetTenant(ctx context.Context, id uuid.UUID) (*Tenant, error
 // Access keys
 // ---------------------------------------------------------------------------
 
-func (m *pgManager) CreateAccessKey(ctx context.Context, tenantID uuid.UUID, accessKey string, secretKeyEnc []byte) (*AccessKeyRow, error) {
+func (m *pgManager) CreateAccessKey(ctx context.Context, tenantID uuid.UUID, accessKey string, secretKeyEnc []byte, readonly bool) (*AccessKeyRow, error) {
 	const q = `
-		INSERT INTO access_keys (id, tenant_id, access_key, secret_key_enc)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO access_keys (id, tenant_id, access_key, secret_key_enc, readonly)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, created_at`
 
 	row := &AccessKeyRow{
@@ -166,8 +166,9 @@ func (m *pgManager) CreateAccessKey(ctx context.Context, tenantID uuid.UUID, acc
 		TenantID:     tenantID,
 		AccessKey:    accessKey,
 		SecretKeyEnc: secretKeyEnc,
+		Readonly:     readonly,
 	}
-	err := m.pool.QueryRow(ctx, q, row.ID, tenantID, accessKey, secretKeyEnc).
+	err := m.pool.QueryRow(ctx, q, row.ID, tenantID, accessKey, secretKeyEnc, readonly).
 		Scan(&row.ID, &row.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create access key: %w", err)
@@ -177,7 +178,7 @@ func (m *pgManager) CreateAccessKey(ctx context.Context, tenantID uuid.UUID, acc
 
 func (m *pgManager) ListAccessKeys(ctx context.Context, tenantID uuid.UUID) ([]AccessKeyRow, error) {
 	const q = `
-		SELECT id, tenant_id, access_key, created_at, revoked_at
+		SELECT id, tenant_id, access_key, readonly, created_at, revoked_at
 		FROM   access_keys
 		WHERE  tenant_id = $1
 		ORDER  BY created_at DESC`
@@ -191,12 +192,31 @@ func (m *pgManager) ListAccessKeys(ctx context.Context, tenantID uuid.UUID) ([]A
 	var keys []AccessKeyRow
 	for rows.Next() {
 		var k AccessKeyRow
-		if err := rows.Scan(&k.ID, &k.TenantID, &k.AccessKey, &k.CreatedAt, &k.RevokedAt); err != nil {
+		if err := rows.Scan(&k.ID, &k.TenantID, &k.AccessKey, &k.Readonly, &k.CreatedAt, &k.RevokedAt); err != nil {
 			return nil, fmt.Errorf("scan access key: %w", err)
 		}
 		keys = append(keys, k)
 	}
 	return keys, rows.Err()
+}
+
+func (m *pgManager) UpdateAccessKeyReadonly(ctx context.Context, id, tenantID uuid.UUID, readonly bool) (*AccessKeyRow, error) {
+	const q = `
+		UPDATE access_keys SET readonly = $1
+		WHERE  id = $2 AND tenant_id = $3 AND revoked_at IS NULL
+		RETURNING id, tenant_id, access_key, readonly, created_at, revoked_at`
+
+	var row AccessKeyRow
+	err := m.pool.QueryRow(ctx, q, readonly, id, tenantID).Scan(
+		&row.ID, &row.TenantID, &row.AccessKey, &row.Readonly, &row.CreatedAt, &row.RevokedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrAccessKeyNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("update access key readonly: %w", err)
+	}
+	return &row, nil
 }
 
 func (m *pgManager) RevokeAccessKey(ctx context.Context, id, tenantID uuid.UUID) error {

@@ -1,0 +1,2 @@
+ALTER TABLE access_keys
+    ADD COLUMN readonly BOOLEAN NOT NULL DEFAULT FALSE;

@@ -39,8 +39,9 @@ type Manager interface {
 	ListTenants(ctx context.Context) ([]Tenant, error)
 
 	// Access keys
-	CreateAccessKey(ctx context.Context, tenantID uuid.UUID, accessKey string, secretKeyEnc []byte) (*AccessKeyRow, error)
+	CreateAccessKey(ctx context.Context, tenantID uuid.UUID, accessKey string, secretKeyEnc []byte, readonly bool) (*AccessKeyRow, error)
 	ListAccessKeys(ctx context.Context, tenantID uuid.UUID) ([]AccessKeyRow, error)
+	UpdateAccessKeyReadonly(ctx context.Context, id, tenantID uuid.UUID, readonly bool) (*AccessKeyRow, error)
 	RevokeAccessKey(ctx context.Context, id, tenantID uuid.UUID) error
 
 	// Stores

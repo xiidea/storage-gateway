@@ -59,6 +59,7 @@ func New(mgr registry.Manager, cryptoKey []byte, pool *backend.Pool, adminToken,
 			r.Route("/{tenantID}/keys", func(r chi.Router) {
 				r.Post("/", h.createAccessKey)
 				r.Get("/", h.listAccessKeys)
+				r.Put("/{keyID}/readonly", h.updateAccessKeyReadonly)
 				r.Delete("/{keyID}", h.revokeAccessKey)
 			})
 

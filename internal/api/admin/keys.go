@@ -3,7 +3,10 @@ package admin
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	"storage-gateway/internal/auth"
@@ -13,10 +16,19 @@ import (
 //
 // Generates a new access key pair. The plaintext secret is returned once in
 // this response and is never retrievable again — callers must store it immediately.
+// The body is optional; {"readonly": true} creates a read-only key (default false).
 func (h *Handler) createAccessKey(w http.ResponseWriter, r *http.Request) {
 	tenantID, err := uuidParam(r, "tenantID")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid tenant_id")
+		return
+	}
+
+	var req struct {
+		Readonly bool `json:"readonly"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -43,7 +55,7 @@ func (h *Handler) createAccessKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	row, err := h.mgr.CreateAccessKey(r.Context(), tenantID, accessKeyID, secretKeyEnc)
+	row, err := h.mgr.CreateAccessKey(r.Context(), tenantID, accessKeyID, secretKeyEnc, req.Readonly)
 	if err != nil {
 		handleErr(w, err)
 		return
@@ -54,8 +66,41 @@ func (h *Handler) createAccessKey(w http.ResponseWriter, r *http.Request) {
 		TenantID:  tenantID,
 		AccessKey: row.AccessKey,
 		SecretKey: secretKey, // plaintext — only shown at creation
+		Readonly:  row.Readonly,
 		CreatedAt: row.CreatedAt,
 	})
+}
+
+// PUT /tenants/{tenantID}/keys/{keyID}/readonly
+//
+// Sets or clears the readonly flag on an active (non-revoked) access key.
+// Takes effect on the S3 data plane immediately (the cached key entry is evicted).
+func (h *Handler) updateAccessKeyReadonly(w http.ResponseWriter, r *http.Request) {
+	tenantID, err := uuidParam(r, "tenantID")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid tenant_id")
+		return
+	}
+	keyID, err := uuidParam(r, "keyID")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid key_id")
+		return
+	}
+
+	var req struct {
+		Readonly *bool `json:"readonly"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Readonly == nil {
+		writeError(w, http.StatusBadRequest, "readonly (boolean) is required")
+		return
+	}
+
+	row, err := h.mgr.UpdateAccessKeyReadonly(r.Context(), keyID, tenantID, *req.Readonly)
+	if err != nil {
+		handleErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toKeyDTO(*row))
 }
 
 // GET /tenants/{tenantID}/keys

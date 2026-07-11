@@ -35,6 +35,7 @@ type AccessKeyRow struct {
 	TenantID     uuid.UUID  `json:"tenant_id"`
 	AccessKey    string     `json:"access_key"`
 	SecretKeyEnc []byte     `json:"-"`
+	Readonly     bool       `json:"readonly"`
 	CreatedAt    time.Time  `json:"created_at"`
 	RevokedAt    *time.Time `json:"revoked_at,omitempty"`
 }

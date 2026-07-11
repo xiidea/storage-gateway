@@ -69,6 +69,7 @@ type keyDTO struct {
 	ID        uuid.UUID  `json:"id"`
 	TenantID  uuid.UUID  `json:"tenant_id"`
 	AccessKey string     `json:"access_key"`
+	Readonly  bool       `json:"readonly"`
 	CreatedAt time.Time  `json:"created_at"`
 	RevokedAt *time.Time `json:"revoked_at,omitempty"`
 }
@@ -78,6 +79,7 @@ func toKeyDTO(k registry.AccessKeyRow) keyDTO {
 		ID:        k.ID,
 		TenantID:  k.TenantID,
 		AccessKey: k.AccessKey,
+		Readonly:  k.Readonly,
 		CreatedAt: k.CreatedAt,
 		RevokedAt: k.RevokedAt,
 	}
@@ -90,6 +92,7 @@ type createKeyResponse struct {
 	TenantID  uuid.UUID `json:"tenant_id"`
 	AccessKey string    `json:"access_key"`
 	SecretKey string    `json:"secret_key"`
+	Readonly  bool      `json:"readonly"`
 	CreatedAt time.Time `json:"created_at"`
 }
 

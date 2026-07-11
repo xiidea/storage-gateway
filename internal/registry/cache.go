@@ -40,6 +40,7 @@ func NewCached(inner Manager, rdb *redis.Client, ttl time.Duration) Manager {
 type cachedAccessKey struct {
 	TenantID     string `json:"tid"`
 	SecretKeyEnc []byte `json:"sk"`
+	Readonly     bool   `json:"ro"`
 	CreatedAt    int64  `json:"ca"`
 }
 
@@ -69,6 +70,7 @@ func (c *cachedRegistry) LookupAccessKey(ctx context.Context, accessKey string) 
 					TenantID:     tid,
 					AccessKey:    accessKey,
 					SecretKeyEnc: cached.SecretKeyEnc,
+					Readonly:     cached.Readonly,
 					CreatedAt:    time.Unix(cached.CreatedAt, 0),
 				}, nil
 			}
@@ -87,6 +89,7 @@ func (c *cachedRegistry) LookupAccessKey(ctx context.Context, accessKey string) 
 	if b, jerr := json.Marshal(cachedAccessKey{
 		TenantID:     row.TenantID.String(),
 		SecretKeyEnc: row.SecretKeyEnc,
+		Readonly:     row.Readonly,
 		CreatedAt:    row.CreatedAt.Unix(),
 	}); jerr == nil {
 		_ = c.rdb.Set(ctx, key, b, c.ttl).Err()
@@ -173,8 +176,18 @@ func (c *cachedRegistry) ListTenants(ctx context.Context) ([]Tenant, error) {
 	return c.inner.ListTenants(ctx)
 }
 
-func (c *cachedRegistry) CreateAccessKey(ctx context.Context, tenantID uuid.UUID, accessKey string, secretKeyEnc []byte) (*AccessKeyRow, error) {
-	return c.inner.CreateAccessKey(ctx, tenantID, accessKey, secretKeyEnc)
+func (c *cachedRegistry) CreateAccessKey(ctx context.Context, tenantID uuid.UUID, accessKey string, secretKeyEnc []byte, readonly bool) (*AccessKeyRow, error) {
+	return c.inner.CreateAccessKey(ctx, tenantID, accessKey, secretKeyEnc, readonly)
+}
+
+func (c *cachedRegistry) UpdateAccessKeyReadonly(ctx context.Context, id, tenantID uuid.UUID, readonly bool) (*AccessKeyRow, error) {
+	row, err := c.inner.UpdateAccessKeyReadonly(ctx, id, tenantID, readonly)
+	if err != nil {
+		return nil, err
+	}
+	// Evict the cached entry so the S3 data plane sees the new flag immediately.
+	_ = c.InvalidateAccessKey(ctx, row.AccessKey)
+	return row, nil
 }
 
 func (c *cachedRegistry) ListAccessKeys(ctx context.Context, tenantID uuid.UUID) ([]AccessKeyRow, error) {
